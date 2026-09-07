@@ -74,6 +74,11 @@ export class Aegis {
     return this.clock();
   }
 
+  /** Current risk context. Exposed so the gateway can classify risk direction. */
+  context(): RiskContext {
+    return this.store.buildContext(this.now());
+  }
+
   /**
    * Evaluate a proposed action and record the decision.
    *
@@ -236,6 +241,10 @@ export const DEFAULT_POLICY_YAML: string = [
   '  maxOrdersPerMinute: 5',
   '  maxOrdersPerHour: 40',
   '  maxPositionsOpen: 5',
+  // Running with no policy file must not silently disable a control that every
+  // shipped policy file enables. A default that is weaker than the examples is
+  // the one most people will actually run.
+  '  maxPositionSnapshotAgeSec: 120',
   'allow:',
   '  categories: ["read", "trade", "cancel", "transfer"]',
   '  venues: ["spot", "futures-usds", "convert", "market-data", "wallet"]',
@@ -245,6 +254,7 @@ export const DEFAULT_POLICY_YAML: string = [
   '  priceDeviationPct: 10',
   '  minAccountEquityUsd: 20',
   '  requireStopLoss: true',
+  '  maxStopDistancePct: 10',
   '  cooldownSecondsAfterLoss: 180',
   '  reviewAboveNotionalUsd: 200',
   '  blockDuplicateActionIds: true',

@@ -43,6 +43,7 @@ jobs:
           node --test dist/test/gateway.test.js
           node --test dist/test/gateway-hardening.test.js
           node --test dist/test/self-audit.test.js
+          node --test dist/test/sizing.test.js
 
       - name: Unsupported venues must be refused, never rerouted
         run: |
@@ -75,6 +76,26 @@ jobs:
           set -e
           echo "review exit code: $CODE"
           test "$CODE" -eq 3
+
+      - name: Built-in default policy must enable every mandatory guard
+        run: |
+          node --input-type=module -e "
+            import { DEFAULT_POLICY_YAML } from './dist/src/aegis.js';
+            import { loadPolicyFromString } from './dist/src/policy/schema.js';
+            const p = loadPolicyFromString(DEFAULT_POLICY_YAML);
+            if (p.limits.maxPositionSnapshotAgeSec === null) { console.error('default policy: maxPositionSnapshotAgeSec unset'); process.exit(1); }
+            if (p.guards.maxStopDistancePct === null) { console.error('default policy: maxStopDistancePct unset'); process.exit(1); }
+            console.log('default policy enables every mandatory guard');
+          "
+
+      - name: Gateway capabilities must match what dispatch implements
+        run: |
+          node --input-type=module -e "
+            import { GATEWAY_CAPABILITIES } from './dist/src/gateway/capabilities.js';
+            const claimed = GATEWAY_CAPABILITIES.map(c => c.category + ':' + c.venue).sort().join(',');
+            if (claimed !== 'trade:futures-usds,trade:spot') { console.error('capabilities drifted: ' + claimed); process.exit(1); }
+            console.log('capabilities: ' + claimed);
+          "
 
       - name: All 23 rules are registered
         run: |

@@ -39,6 +39,11 @@ const ORDER_TYPES: readonly OrderType[] = [
 /** Categories that can never increase risk, so they need no sizing. */
 const ZERO_NOTIONAL_CATEGORIES = new Set<ActionCategory>(['read', 'cancel']);
 
+/** Venues that price in base quantity and cannot accept a quote-sized order. */
+const QUANTITY_ONLY_VENUES = new Set<Venue>(['futures-usds', 'futures-coin', 'margin']);
+
+const round8 = (n: number): number => Math.round(n * 1e8) / 1e8;
+
 function requireFinitePositive(value: unknown, field: string): number {
   if (typeof value !== 'number') {
     throw new NormalizationError(`"${field}" must be a number, received ${JSON.stringify(value)}`);
@@ -58,8 +63,6 @@ function optionalFinitePositive(value: unknown, field: string): number | null {
 }
 
 function stableId(action: ProposedAction, now: number): string {
-  // Deterministic content hash so the same proposal at the same instant produces
-  // the same id — that is what makes the duplicate guard meaningful.
   const canonical = JSON.stringify({
     c: action.category,
     v: action.venue,
@@ -81,54 +84,6 @@ function resolveMark(ctx: RiskContext, key: string): number | null {
   const direct = ctx.marks[key];
   if (typeof direct === 'number' && Number.isFinite(direct) && direct > 0) return direct;
   return null;
-}
-
-/** Venues that price in base quantity and cannot accept a quote-sized order. */
-const QUANTITY_ONLY_VENUES = new Set<Venue>(['futures-usds', 'futures-coin', 'margin']);
-
-/**
- * Resolve the base-asset quantity that will actually be sent.
- *
- * This fixes the worst defect found in v2.0.0: the engine judged
- * `quoteQuantity: 100` as a $100 order while the adapter computed
- * `quantity = notionalUsd / (price ?? 1)` — sending **100 BTC**, a 100,000x
- * amplification, with every policy check having passed cleanly.
- *
- * The rule is now absolute: **whatever the engine judged is what gets sent.**
- * Derivatives quantities are resolved here, before any rule runs, and the
- * adapter is forbidden from re-deriving them. If a quantity cannot be resolved
- * from a trustworthy price, normalization fails and the engine denies.
- */
-function resolveExecutionQuantity(
-  venue: Venue,
-  category: ActionCategory,
-  symbol: string | null,
-  quantity: number | null,
-  price: number | null,
-  notionalUsd: number,
-  ctx: RiskContext,
-): number | null {
-  if (category !== 'trade') return null;
-  if (quantity !== null) return quantity;
-  if (!QUANTITY_ONLY_VENUES.has(venue)) return null; // spot can size in quote terms
-  if (notionalUsd <= 0) return null;
-
-  const reference = price ?? (symbol !== null ? resolveMark(ctx, symbol) : null);
-  if (reference === null || reference <= 0) {
-    throw new NormalizationError(
-      `cannot resolve an execution quantity for a ${venue} order on ${symbol ?? 'an unknown symbol'}: ` +
-      'no limit price and no reference mark. Aegis refuses to send a quantity it did not judge — ' +
-      'supply an explicit `quantity`, or a `price`, or seed ctx.marks.',
-    );
-  }
-
-  const qty = notionalUsd / reference;
-  if (!Number.isFinite(qty) || qty <= 0) {
-    throw new NormalizationError(`resolved a non-finite execution quantity for ${symbol ?? venue}`);
-  }
-  // 8 dp sits below the step size of every Binance perpetual; anything that
-  // still violates stepSize is rejected by the venue, which fails closed.
-  return Math.round(qty * 1e8) / 1e8;
 }
 
 /** Convert a ProposedAction into the canonical form every rule consumes. */
@@ -169,7 +124,9 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
   if (proposal.orderType !== undefined && proposal.orderType !== null) {
     const upper = String(proposal.orderType).trim().toUpperCase() as OrderType;
     if (!ORDER_TYPES.includes(upper)) {
-      throw new NormalizationError(`invalid orderType ${JSON.stringify(proposal.orderType)}. Valid: ${ORDER_TYPES.join(', ')}`);
+      throw new NormalizationError(
+        `invalid orderType ${JSON.stringify(proposal.orderType)}. Valid: ${ORDER_TYPES.join(', ')}`,
+      );
     }
     orderType = upper;
   }
@@ -180,60 +137,138 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
   const leverage = optionalFinitePositive(proposal.leverage, 'leverage');
   const stopPrice = optionalFinitePositive(proposal.stopPrice, 'stopPrice');
 
+  // ---------------------------------------------------------------------------
+  // Canonical sizing
+  //
+  // GW-08/09/10. The v2.1 fix for GW-02 stopped the adapter re-deriving a
+  // quantity, but left the *action* free to describe its size more than once.
+  // Three live bypasses followed, each 100,000x:
+  //
+  //   { quoteQuantity: 100, quantity: 100 } → judged $100, would send 100 BTC
+  //   { quantity: 1, price: 1, MARKET }     → judged $1,   would send 1 BTC
+  //   the same conflict on spot             → judged $100, would send 100 BTC
+  //
+  // The answer is not smarter precedence, because precedence still leaves two
+  // descriptions in play and some layer will believe the wrong one. Ambiguity is
+  // refused outright, one reference price is chosen explicitly, and the result is
+  // asserted self-consistent before it can leave this function.
+  // ---------------------------------------------------------------------------
+
   let notionalUsd = 0;
   let notionalBasis: NormalizedAction['notionalBasis'] = 'none';
+  let sizingReference: number | null = null;
+  let executionQuantity: number | null = null;
 
   if (!ZERO_NOTIONAL_CATEGORIES.has(category)) {
-    if (quoteQuantity !== null) {
-      notionalUsd = quoteQuantity;
-      notionalBasis = 'quote-quantity';
-    } else if (quantity !== null && price !== null) {
-      notionalUsd = quantity * price;
-      notionalBasis = 'quantity-x-price';
-    } else if (quantity !== null && asset !== null && (category === 'transfer' || category === 'onchain' || category === 'withdraw')) {
-      if (USD_PEGGED.has(asset)) {
-        notionalUsd = quantity;
-      } else {
-        const mark = resolveMark(ctx, asset) ?? resolveMark(ctx, `${asset}USDT`);
-        if (mark === null) {
-          throw new NormalizationError(
-            `no reference price for asset "${asset}" — Aegis refuses to size an action it cannot value. ` +
-            `Supply ctx.marks["${asset}"] or an explicit quoteQuantity.`,
-          );
-        }
-        notionalUsd = quantity * mark;
-      }
-      notionalBasis = 'asset-amount';
-    } else if (quantity !== null && symbol !== null) {
-      const mark = resolveMark(ctx, symbol);
-      if (mark === null) {
-        throw new NormalizationError(
-          `no reference price for symbol "${symbol}" — Aegis refuses to size an action it cannot value. ` +
-          `Supply ctx.marks["${symbol}"] or an explicit price/quoteQuantity.`,
-        );
-      }
-      notionalUsd = quantity * mark;
-      notionalBasis = 'quantity-x-mark';
-    } else {
+    if (quantity !== null && quoteQuantity !== null) {
       throw new NormalizationError(
-        `cannot determine the size of this ${category} action: provide quoteQuantity, or quantity with a price, ` +
-        `or quantity with a symbol/asset that has a reference price.`,
+        'an action must state its size exactly once: `quantity` and `quoteQuantity` were both supplied. ' +
+        'Aegis refuses to guess which one the venue will honour — send one or the other.',
       );
     }
+
+    if (category === 'transfer' || category === 'onchain' || category === 'withdraw') {
+      // Asset movements are sized by asset amount, not by an order book.
+      if (quoteQuantity !== null) {
+        notionalUsd = quoteQuantity;
+        notionalBasis = 'quote-quantity';
+      } else if (quantity !== null && asset !== null) {
+        if (USD_PEGGED.has(asset)) {
+          notionalUsd = quantity;
+          sizingReference = 1;
+        } else {
+          const mark = resolveMark(ctx, asset) ?? resolveMark(ctx, `${asset}USDT`);
+          if (mark === null) {
+            throw new NormalizationError(
+              `no reference price for asset "${asset}" — Aegis refuses to size an action it cannot value. ` +
+              `Supply ctx.marks["${asset}"] or an explicit quoteQuantity.`,
+            );
+          }
+          notionalUsd = quantity * mark;
+          sizingReference = mark;
+        }
+        notionalBasis = 'asset-amount';
+      } else {
+        throw new NormalizationError(
+          `cannot determine the size of this ${category} action: provide quoteQuantity, ` +
+          'or quantity with an asset that has a reference price.',
+        );
+      }
+    } else {
+      // Orders. Exactly one reference price, chosen by order type:
+      //   LIMIT  → the limit price, which is what will actually transact.
+      //   MARKET → the mark. A caller-supplied `price` on a MARKET order means
+      //            nothing to the venue, so believing it would let an agent
+      //            declare a $1 notional and receive a $100,000 fill.
+      const isLimit = orderType === 'LIMIT' || orderType === 'STOP_LOSS_LIMIT';
+      const mark = symbol !== null ? resolveMark(ctx, symbol) : null;
+      const reference = isLimit ? price : mark;
+
+      // A reference is only demanded when a conversion actually needs one. A spot
+      // quote-sized order needs none: the notional IS the quote amount, and the
+      // venue accepts `quoteOrderQty` directly.
+      const needsReference =
+        quantity !== null || (quoteQuantity !== null && QUANTITY_ONLY_VENUES.has(venue as Venue));
+
+      if (needsReference && (reference === null || reference <= 0)) {
+        throw new NormalizationError(
+          isLimit
+            ? 'a LIMIT order must carry a positive `price`.'
+            : `no reference mark for "${symbol ?? 'an unknown symbol'}" — Aegis will not size an order ` +
+              'it cannot value. Seed ctx.marks or run `aegis sync`.',
+        );
+      }
+      sizingReference = reference;
+
+      if (quoteQuantity !== null) {
+        notionalUsd = quoteQuantity;
+        notionalBasis = 'quote-quantity';
+        // Derivatives cannot be sized in quote terms on the wire, so resolve the
+        // base quantity here — the engine judges what will actually be sent.
+        if (QUANTITY_ONLY_VENUES.has(venue as Venue) && reference !== null) {
+          executionQuantity = round8(quoteQuantity / reference);
+        }
+      } else if (quantity !== null && reference !== null) {
+        notionalUsd = quantity * reference;
+        notionalBasis = isLimit ? 'quantity-x-price' : 'quantity-x-mark';
+        executionQuantity = quantity;
+      } else {
+        throw new NormalizationError(
+          'cannot determine the size of this trade: provide `quoteQuantity`, or `quantity`.',
+        );
+      }
+    }
   }
+
+  notionalUsd = round8(notionalUsd);
 
   if (!Number.isFinite(notionalUsd)) {
     throw new NormalizationError('computed notional is not a finite number');
   }
 
+  // Post-condition. Anything that reaches the venue as a base quantity must
+  // multiply back to the notional the rules judged. This is the invariant GW-02
+  // and GW-08 both violated; asserting it here means a future refactor cannot
+  // reintroduce the class of bug, only fail loudly.
+  if (executionQuantity !== null) {
+    if (!Number.isFinite(executionQuantity) || executionQuantity <= 0) {
+      throw new NormalizationError('resolved a non-positive execution quantity');
+    }
+    if (sizingReference !== null) {
+      const implied = executionQuantity * sizingReference;
+      const tolerance = Math.max(0.01, notionalUsd * 1e-6);
+      if (Math.abs(implied - notionalUsd) > tolerance) {
+        throw new NormalizationError(
+          `internal sizing inconsistency: judged $${notionalUsd} but would send ${executionQuantity} ` +
+          `at ${sizingReference} = $${implied}. Refusing to proceed.`,
+        );
+      }
+    }
+  }
+
   const id = typeof proposal.id === 'string' && proposal.id.trim() !== ''
     ? proposal.id.trim()
     : stableId(proposal, ctx.now);
-
-  const roundedNotional = Math.round(notionalUsd * 1e8) / 1e8;
-  const executionQuantity = resolveExecutionQuantity(
-    venue as Venue, category, symbol, quantity, price, roundedNotional, ctx,
-  );
 
   return {
     id,
@@ -252,8 +287,9 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
     hasStopLoss: proposal.hasStopLoss === true || stopPrice !== null,
     stopPrice,
     executionQuantity,
+    sizingReference,
     destination: typeof proposal.destination === 'string' ? proposal.destination : null,
-    notionalUsd: roundedNotional,
+    notionalUsd,
     notionalBasis,
     raw: proposal,
   };
@@ -278,13 +314,9 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
  * to the thing it is guarding.
  */
 export interface RiskDirection {
-  /** True when the action can only shrink existing exposure. */
   reducing: boolean;
-  /** True when the claim was checked against a real, opposing position. */
   verified: boolean;
-  /** Notional of the matching position, when one is known. */
   positionNotionalUsd: number | null;
-  /** Human-readable justification, surfaced in findings. */
   reason: string;
 }
 

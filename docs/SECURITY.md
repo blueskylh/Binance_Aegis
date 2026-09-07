@@ -100,7 +100,21 @@ a capability you hand out separately.
 1. **Advisory mode cannot enforce.** See above. Use gateway mode if you need the
    guarantee rather than the habit.
 
-2. **Gateway writes cover spot and USD-M futures only.** Margin, COIN-M,
+2. **Leveraged entries must be synchronously reconcilable.** Gateway execution
+   of risk-increasing orders on leveraged venues is limited to `MARKET`, because
+   a resting entry fills after the gateway has returned and nothing would record
+   it. Exits are never restricted, and spot carries no liquidation risk. This is
+   a deliberate narrowing, not an oversight — the alternative was an
+   order-lifecycle daemon and the bugs that come with one.
+
+3. **Portfolio exposure models USD-M derivatives.** `maxOpenNotionalUsd` and
+   `maxPositionsOpen` are computed from futures positions; spot holdings are not
+   valued into `PositionSnapshot[]`, and `equityUsd` counts only stablecoin spot
+   balances. Spot risk is governed by the per-order and daily-notional limits
+   instead. Read those limits as "derivatives exposure", not "total account
+   exposure".
+
+4. **Gateway writes cover spot and USD-M futures only.** Margin, COIN-M,
    convert, wallet transfers and on-chain actions are refused with
    `unsupported-execution-capability`, never rerouted. A narrow, honest surface
    beats a broad, wrong one.
@@ -109,19 +123,19 @@ a capability you hand out separately.
    knowledge of the algorithm can recompute the chain from the edit onward.
    Set `AEGIS_LEDGER_KEY` for HMAC mode, and publish `aegis ledger head`
    somewhere you do not control for an external anchor.
-4. **Protective stops are placed, not tracked.** The gateway attaches the stop
+5. **Protective stops are placed, not tracked.** The gateway attaches the stop
    after an entry fills, but a later stop *fill* is not reconciled back into the
    PnL counters. Run the guardian to keep positions current.
 
-5. **Aegis does not verify what was actually sent.** It authorizes an action and,
+6. **Aegis does not verify what was actually sent.** It authorizes an action and,
    in gateway mode, sends it. It cannot prove that a *separate* channel did not
    send something else. Pair it with the Agentic sub-account's own permission
    scopes for defence in depth.
-6. **Position data can be stale.** `reduceOnly` verification is only as fresh as
+7. **Position data can be stale.** `reduceOnly` verification is only as fresh as
    the last snapshot. Run the guardian, or call `aegis sync`, to keep it current.
    When Aegis cannot verify a reduction claim it refuses the exemption rather
    than guessing.
-7. **It cannot make a losing strategy profitable.** It bounds the blast radius of
+8. **It cannot make a losing strategy profitable.** It bounds the blast radius of
    error. That is all.
 
 ---
@@ -176,7 +190,30 @@ Found by attacking our own code rather than waiting for a reviewer.
 | SA-05 | **Critical** | `duplicate-action` reads the ledger, which only knows about *completed* orders. Five concurrent submissions of one id all passed the check and all executed — and an MCP timeout retry is routine | Synchronous in-flight reservation taken before the first `await`, plus a lock-protected registry for cross-process |
 | SA-06 | Medium | The in-process reservation set had no lease, so a leaked reservation blacklisted an action id for the life of the process | Reservations are leases; expired entries are swept |
 
+### Round 4 — v2.1.0 execution boundary (GW-08 … GW-14)
+
+A third review found that GW-02 had been fixed only along the path it was
+discovered on. The real defect was never "the adapter re-derives a quantity" —
+it was that **an action could describe its own size more than once**, and
+different layers believed different descriptions.
+
+| ID | Severity | Defect | Fix |
+|:--:|---|---|---|
+| GW-08 | **Critical** | `{ quoteQuantity: 100, quantity: 100 }` was judged at $100 and would have sent 100 BTC. Same on spot | Conflicting size representations are refused outright |
+| GW-09 | **Critical** | `{ quantity: 1, price: 1, MARKET }` was judged at $1 and would have sent 1 BTC — a caller-supplied price on a MARKET order means nothing to the venue | MARKET orders are priced by the mark; only LIMIT uses the supplied price |
+| GW-10 | **Critical** | Nothing asserted that quantity × reference still equalled the judged notional | A post-condition in the normalizer, plus an exhaustive test over the sizing input space |
+| GW-11 | **High** | A resting LIMIT entry filled after the gateway returned — no notional recorded, no position updated, no protective stop attached | Leveraged entries are restricted to synchronously reconcilable order types; partial fills cancel the remainder. Exits and spot are unrestricted |
+| GW-12 | **High** | One action id could mint two pending tickets; approving both executed the trade twice. A dry-run approval also consumed the ticket, so the operator's real `--live` approval then failed | One pending ticket per action id; approval holds an action-level reservation; a dry run previews without consuming |
+| GW-13 | Medium | Capabilities advertised `cancel` and `read`, but `dispatch()` only calls `placeOrder` — a cancel would have been submitted as an order. The built-in default policy also left the newest guards unset | Capabilities narrowed to what `placeOrder` implements; `DEFAULT_POLICY_YAML` enables every mandatory guard |
+| GW-14 | Medium | `InFlightRegistry` documented fail-closed and returned `true` (proceed) on lock failure; ownership was keyed by PID, so two gateways in one process ignored each other | Fails closed; ownership keyed by a per-instance token |
+
+Also fixed: CLI `--stopPrice` / `--closePosition` were never coerced, so they
+arrived as strings and failed closed — correct, but a wall to hit during a demo.
+And the Docker build stage did not copy `policies/`, which the self-audit tests
+read — the reason CI was red.
+
 Regression tests: [`test/security.test.ts`](../test/security.test.ts),
+[`test/sizing.test.ts`](../test/sizing.test.ts),
 [`test/gateway-hardening.test.ts`](../test/gateway-hardening.test.ts),
 [`test/self-audit.test.ts`](../test/self-audit.test.ts).
 

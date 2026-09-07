@@ -15,8 +15,8 @@
 
 <br/>
 
-[![测试](https://img.shields.io/badge/测试-297%20全部通过-brightgreen?style=flat-square)]()
-[![安全回归](https://img.shields.io/badge/安全回归-35%20项-critical?style=flat-square)]()
+[![测试](https://img.shields.io/badge/测试-294%20全部通过-brightgreen?style=flat-square)]()
+[![安全回归](https://img.shields.io/badge/安全回归-56%20项-critical?style=flat-square)]()
 [![依赖](https://img.shields.io/badge/运行时依赖-0-blue?style=flat-square)]()
 [![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)]()
@@ -341,7 +341,7 @@ $ aegis ledger verify   # 有人编辑过某条历史记录之后
 ## 🧪 工程质量
 
 ```
-297 个测试 · 0 失败 · 其中 35 项为安全/硬化/自审回归 · 0 运行时依赖
+294 个测试 · 0 失败 · 其中 56 项为安全/硬化/自审回归 · 0 运行时依赖
 ```
 
 ```bash

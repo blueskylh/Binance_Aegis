@@ -53,8 +53,10 @@ function parseAction(args: string[]): ProposedAction {
     return JSON.parse(first) as unknown as ProposedAction;
   }
   const obj: Record<string, unknown> = {};
-  const numeric = new Set(['quantity', 'price', 'quoteQuantity', 'leverage']);
-  const boolish = new Set(['reduceOnly', 'hasStopLoss']);
+  // Every numeric field must be listed, or it arrives as a string and the
+  // normalizer fails closed — correct, but a confusing wall to hit in a demo.
+  const numeric = new Set(['quantity', 'price', 'quoteQuantity', 'leverage', 'stopPrice']);
+  const boolish = new Set(['reduceOnly', 'hasStopLoss', 'closePosition']);
   for (let i = 0; i < args.length; i += 1) {
     const a = args[i] as string;
     if (!a.startsWith('--')) continue;
@@ -227,7 +229,7 @@ async function buildGateway(g: GlobalOpts, dryRun: boolean) {
   const adapter = new BinanceAdapter();
   // The adapter doubles as the refresher, so every decision runs against
   // positions pulled moments earlier rather than a stale snapshot (GW-05).
-  return new ExecutionGateway(makeAegis(g), adapter, { dryRun, refresher: adapter });
+  return new ExecutionGateway(makeAegis(g), adapter, { dryRun, refresher: adapter, canceller: adapter });
 }
 
 /** Pull fresh account state from Binance so reduce-only checks have real evidence. */

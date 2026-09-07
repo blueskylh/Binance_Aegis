@@ -172,7 +172,7 @@ describe('normalizeAction — input validation (fail closed)', () => {
   test('rejects a trade whose symbol has no reference price', () => {
     assert.throws(
       () => normalizeAction({ category: 'trade', venue: 'spot', symbol: 'DOGEUSDT', side: 'BUY', quantity: 100 }, ctx()),
-      /reference price/i,
+      /reference mark|reference price/i,
     );
   });
 

@@ -109,6 +109,13 @@ export interface NormalizedAction {
    * adapter is forbidden from re-deriving it.
    */
   executionQuantity: number | null;
+  /**
+   * The single price used to convert between notional and quantity.
+   *
+   * Recorded so the ledger can prove, after the fact, that the judged size and
+   * the wire size described the same trade.
+   */
+  sizingReference: number | null;
   destination: string | null;
   /** USD notional the engine sizes limits against. 0 for non-value actions. */
   notionalUsd: number;

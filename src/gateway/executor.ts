@@ -38,7 +38,13 @@ import { join } from 'node:path';
 import type { Aegis, GuardResult } from '../aegis.js';
 import { ApprovalStore, type ApprovalTicket } from './approvals.js';
 import { InFlightRegistry } from './inflight.js';
-import { describeCapabilities, isExecutable } from './capabilities.js';
+import {
+  describeCapabilities,
+  isExecutable,
+  LEVERAGED_VENUES,
+  SYNCHRONOUSLY_RECONCILABLE,
+} from './capabilities.js';
+import { classifyRisk } from '../core/normalize.js';
 import type { Finding, NormalizedAction, ProposedAction } from '../types.js';
 
 /** What the venue reports back after an order. */
@@ -62,6 +68,11 @@ export interface OrderExecutor {
 }
 
 /** Optional account refresher, so decisions run against fresh positions. */
+/** Able to withdraw resting orders. Used only to keep exposure reconciled. */
+export interface OrderCanceller {
+  cancelAllOpenOrders(symbol: string, venue: 'spot' | 'futures-usds'): Promise<unknown>;
+}
+
 export interface AccountRefresher {
   equityUsd(): Promise<number>;
   positions(): Promise<import('../types.js').PositionSnapshot[]>;
@@ -84,6 +95,8 @@ export interface ExecutionOutcome {
   fill: FillReport | null;
   /** The protective stop placed alongside the entry, when one was required. */
   protectiveStop: FillReport | null;
+  /** True when an unfilled remainder was cancelled to keep exposure reconciled. */
+  remainderCancelled: boolean;
   error: string | null;
   summary: string;
 }
@@ -96,6 +109,8 @@ export interface GatewayOptions {
   dataDir?: string;
   /** When supplied, positions are refreshed before every decision. */
   refresher?: AccountRefresher;
+  /** When supplied, unfilled remainders of partial fills are cancelled. */
+  canceller?: OrderCanceller;
   /** Symbols kept warm in the mark cache during a refresh. */
   watch?: string[];
 }
@@ -136,6 +151,7 @@ export class ExecutionGateway {
   private readonly approvals: ApprovalStore;
   private readonly inflight: InFlightRegistry;
   private readonly refresher: AccountRefresher | null;
+  private readonly canceller: OrderCanceller | null;
   private readonly watch: string[];
   /** Last refresh failure text, so an identical one is not re-logged (SA-04). */
   private lastRefreshError: string | null = null;
@@ -149,6 +165,7 @@ export class ExecutionGateway {
     this.approvals = new ApprovalStore(join(home, 'approvals.json'));
     this.inflight = new InFlightRegistry(join(home, 'inflight.json'));
     this.refresher = options.refresher ?? null;
+    this.canceller = options.canceller ?? null;
     this.watch = options.watch ?? ['BTCUSDT', 'ETHUSDT', 'BNBUSDT'];
   }
 
@@ -236,6 +253,7 @@ export class ExecutionGateway {
       },
       fill: null,
       protectiveStop: null,
+      remainderCancelled: false,
       error: null,
       summary: `BLOCKED — ${finding.message}`,
     };
@@ -249,23 +267,42 @@ export class ExecutionGateway {
 
     // Capability is a property of EXECUTION, not of policy. Check it after the
     // policy verdict so the ledger records both reasons, and before any dispatch.
-    const unsupported = this.capabilityFinding(decision.normalized);
-    if (unsupported) {
+    const boundary = this.capabilityFinding(decision.normalized)
+      ?? this.reconcilabilityFinding(decision.normalized, classifyRisk(decision.normalized, this.aegis.context()));
+    if (boundary) {
       const withFinding: GuardResult = {
         ...decision,
         verdict: 'deny',
-        findings: [unsupported, ...decision.findings],
-        summary: `DENY — ${unsupported.message}`,
+        findings: [boundary, ...decision.findings],
+        summary: `DENY — ${boundary.message}`,
       };
-      this.aegis.note(`capability refusal: ${decision.normalized.category}/${decision.normalized.venue}`, {
-        actionId: decision.actionId,
-      });
+      this.aegis.note(`execution boundary refusal (${boundary.ruleId})`, { actionId: decision.actionId });
       return this.blocked(withFinding, 'Nothing was sent to Binance.');
     }
 
     if (decision.verdict === 'deny') return this.blocked(decision, 'Nothing was sent to Binance.');
 
     if (decision.verdict === 'review') {
+      // GW-12: one action id, one pending decision. Otherwise two tickets exist
+      // for the same trade and approving both executes it twice.
+      const existing = this.approvals.listPending(this.aegis.now())
+        .find((t) => t.proposal.id !== undefined && t.proposal.id === proposal.id);
+      if (existing) {
+        const finding: Finding = {
+          ruleId: 'already-awaiting-approval',
+          verdict: 'deny',
+          severity: 'warn',
+          message:
+            `Action id "${String(proposal.id)}" is already parked as ticket ${existing.id}. ` +
+            'Approve or reject that one rather than creating a second decision for the same trade.',
+          observed: existing.id,
+          limit: 'one pending ticket per action id',
+        };
+        return this.blocked(
+          { ...decision, verdict: 'deny', findings: [finding, ...decision.findings], summary: finding.message },
+          'Nothing was sent to Binance.',
+        );
+      }
       const ticket = this.park(proposal, decision);
       return {
         status: 'pending-approval',
@@ -274,6 +311,7 @@ export class ExecutionGateway {
         decision,
         fill: null,
         protectiveStop: null,
+        remainderCancelled: false,
         error: null,
         summary:
           `AWAITING APPROVAL — ${decision.summary} ` +
@@ -289,12 +327,38 @@ export class ExecutionGateway {
         decision,
         fill: null,
         protectiveStop: null,
+        remainderCancelled: false,
         error: null,
         summary: `DRY-RUN — would have executed: ${decision.summary}`,
       };
     }
 
     return this.dispatch(decision);
+  }
+
+  /**
+   * GW-11. A resting leveraged entry escapes reconciliation entirely: it fills
+   * after the gateway has returned, so nothing records the notional, updates the
+   * position, or attaches the protective stop the policy required.
+   */
+  private reconcilabilityFinding(action: NormalizedAction, direction: { reducing: boolean }): Finding | null {
+    if (direction.reducing) return null;                       // exits are never restricted
+    if (!LEVERAGED_VENUES.has(action.venue)) return null;      // spot cannot be liquidated
+    if (action.notionalUsd === 0) return null;
+    const type = action.orderType ?? 'MARKET';
+    if (SYNCHRONOUSLY_RECONCILABLE.has(type)) return null;
+    return {
+      ruleId: 'unreconcilable-entry',
+      verdict: 'deny',
+      severity: 'critical',
+      message:
+        `A ${type} entry on ${action.venue} would rest at the venue and fill after Aegis has returned — ` +
+        'the notional, the position and the protective stop would all go unrecorded. ' +
+        `Gateway execution of leveraged entries is limited to: ${[...SYNCHRONOUSLY_RECONCILABLE].join(', ')}. ` +
+        'Exits and spot orders are unrestricted.',
+      observed: type,
+      limit: [...SYNCHRONOUSLY_RECONCILABLE].join(', '),
+    };
   }
 
   private capabilityFinding(action: NormalizedAction): Finding | null {
@@ -320,6 +384,7 @@ export class ExecutionGateway {
       decision,
       fill: null,
       protectiveStop: null,
+      remainderCancelled: false,
       error: null,
       summary: `BLOCKED — ${decision.summary} ${note}`,
     };
@@ -336,7 +401,7 @@ export class ExecutionGateway {
       this.aegis.note(`execution error for ${action.id}: ${message}`);
       return {
         status: 'failed', verdict: 'allow', ticketId: null, decision,
-        fill: null, protectiveStop: null, error: message,
+        fill: null, protectiveStop: null, remainderCancelled: false, error: message,
         summary: `FAILED — Aegis allowed it, but the order could not be placed: ${message}`,
       };
     }
@@ -347,7 +412,7 @@ export class ExecutionGateway {
       this.aegis.note(`venue rejected ${action.id} with status ${status}`, { orderId: fill.orderId });
       return {
         status: 'failed', verdict: 'allow', ticketId: null, decision,
-        fill, protectiveStop: null, error: `venue rejected the order (${status})`,
+        fill, protectiveStop: null, remainderCancelled: false, error: `venue rejected the order (${status})`,
         summary: `FAILED — Aegis allowed it, but Binance rejected it (${status}).`,
       };
     }
@@ -361,7 +426,7 @@ export class ExecutionGateway {
       });
       return {
         status: 'accepted-unfilled', verdict: 'allow', ticketId: null, decision,
-        fill, protectiveStop: null, error: null,
+        fill, protectiveStop: null, remainderCancelled: false, error: null,
         summary:
           `ACCEPTED (unfilled) — order ${fill.orderId ?? 'n/a'} is resting at the venue with status ${status}. ` +
           'No budget consumed until it fills.',
@@ -378,6 +443,23 @@ export class ExecutionGateway {
       meta: { orderId: fill.orderId, status, source: 'gateway' },
     });
 
+    // GW-11: a partial fill leaves a resting remainder that will fill later,
+    // outside any reconciliation. Cancel it, so what Aegis recorded is the whole
+    // of what exists.
+    let remainderCancelled = false;
+    if (status === 'PARTIALLY_FILLED' && this.canceller && action.symbol !== null) {
+      try {
+        const venue = action.venue === 'futures-usds' ? 'futures-usds' : 'spot';
+        await this.canceller.cancelAllOpenOrders(action.symbol, venue);
+        remainderCancelled = true;
+        this.aegis.note(`cancelled the unfilled remainder of ${action.id}`, { orderId: fill.orderId });
+      } catch (err) {
+        this.aegis.note(`FAILED to cancel the remainder of ${action.id}: ${(err as Error).message}`, {
+          severity: 'critical',
+        });
+      }
+    }
+
     const protectiveStop = await this.placeProtectiveStop(action, fill);
 
     const stopNote = protectiveStop === null
@@ -388,7 +470,7 @@ export class ExecutionGateway {
 
     return {
       status: 'executed', verdict: 'allow', ticketId: null, decision,
-      fill, protectiveStop, error: null,
+      fill, protectiveStop, remainderCancelled, error: null,
       summary:
         `EXECUTED — ${action.side ?? ''} ${action.symbol ?? action.venue} ` +
         `filled $${Math.round(fill.filledNotionalUsd * 100) / 100} (order ${fill.orderId ?? 'n/a'}).${stopNote}`,
@@ -478,6 +560,49 @@ export class ExecutionGateway {
   /** Human approval. Consumes the ticket atomically, re-evaluates, then executes. */
   async approve(ticketId: string, approver: string): Promise<ExecutionOutcome> {
     const now = this.aegis.now();
+
+    // A dry run is a preview. Burning the ticket on it means the operator's real
+    // `--live` approval then fails with "already used" — the opposite of safe.
+    if (this.dryRun) {
+      const preview = this.approvals.get(ticketId, now);
+      if (!preview || preview.status !== 'PENDING') {
+        return this.ticketFailure(ticketId, 'no such pending ticket (already used, rejected, expired, or never issued)');
+      }
+      const rehearsal = this.aegis.evaluateOnly({ ...preview.proposal, id: `${String(preview.proposal.id ?? preview.id)}-preview` });
+      return {
+        status: 'dry-run', verdict: rehearsal.verdict, ticketId,
+        decision: {
+          verdict: rehearsal.verdict, summary: rehearsal.summary, actionId: rehearsal.action.id,
+          notionalUsd: rehearsal.action.notionalUsd,
+          findings: rehearsal.findings.map((f) => ({
+            ruleId: f.ruleId, verdict: f.verdict, severity: f.severity, message: f.message,
+            observed: f.observed ?? null, limit: f.limit ?? null,
+          })),
+          policy: this.aegis.policy.name, mode: this.aegis.policy.mode,
+          ledgerSeq: -1, ledgerHash: '', normalized: rehearsal.action,
+        },
+        fill: null, protectiveStop: null, remainderCancelled: false, error: null,
+        summary: `DRY-RUN — ticket ${ticketId} is still pending. Re-run with --live to approve it for real.`,
+      };
+    }
+
+    // Hold the action-level reservation for the whole redemption, so two
+    // terminals approving two tickets for one trade cannot both execute.
+    const actionKey = typeof (this.approvals.get(ticketId, now)?.proposal.id) === 'string'
+      ? String(this.approvals.get(ticketId, now)?.proposal.id)
+      : ticketId;
+    if (!this.inflight.reserve(`approve:${actionKey}`, now)) {
+      return this.ticketFailure(ticketId, `another approval for action "${actionKey}" is already executing`);
+    }
+
+    try {
+      return await this.approveReserved(ticketId, approver, now);
+    } finally {
+      this.inflight.release(`approve:${actionKey}`);
+    }
+  }
+
+  private async approveReserved(ticketId: string, approver: string, now: number): Promise<ExecutionOutcome> {
     const ticket = this.approvals.consume(ticketId, now, 'APPROVED', approver, 'approved by operator');
     if (!ticket) {
       return this.ticketFailure(ticketId, 'no such pending ticket (already used, rejected, expired, or never issued)');
@@ -494,9 +619,10 @@ export class ExecutionGateway {
       return this.ticketFailure(ticketId, 'the action changed since it was shown for approval; refusing to execute');
     }
 
-    const unsupported = this.capabilityFinding(decision.normalized);
-    if (unsupported) {
-      return this.blocked({ ...decision, verdict: 'deny', findings: [unsupported, ...decision.findings] }, 'Nothing was sent.');
+    const boundary = this.capabilityFinding(decision.normalized)
+      ?? this.reconcilabilityFinding(decision.normalized, classifyRisk(decision.normalized, this.aegis.context()));
+    if (boundary) {
+      return this.blocked({ ...decision, verdict: 'deny', findings: [boundary, ...decision.findings] }, 'Nothing was sent.');
     }
 
     if (decision.verdict === 'deny') {
@@ -508,14 +634,6 @@ export class ExecutionGateway {
     }
 
     this.aegis.note(`human approval granted for ${ticketId}`, { approver, digest: ticket.actionDigest });
-
-    if (this.dryRun) {
-      return {
-        status: 'dry-run', verdict: decision.verdict, ticketId, decision,
-        fill: null, protectiveStop: null, error: null,
-        summary: `DRY-RUN — approved, would have executed: ${decision.summary}`,
-      };
-    }
 
     return { ...(await this.dispatch(decision)), ticketId };
   }
@@ -547,6 +665,7 @@ export class ExecutionGateway {
       },
       fill: null,
       protectiveStop: null,
+      remainderCancelled: false,
       error,
       summary: `FAILED — ${error}`,
     };

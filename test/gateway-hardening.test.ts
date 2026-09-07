@@ -247,13 +247,16 @@ describe('GW-03 — the gateway executes only what it actually supports', () => 
   test('the capability matrix is explicit and narrow', () => {
     assert.ok(isExecutable('trade', 'spot'));
     assert.ok(isExecutable('trade', 'futures-usds'));
-    assert.ok(isExecutable('cancel', 'spot'));
+    // GW-13: `cancel` and `read` were listed in v2.1 but dispatch only ever
+    // calls placeOrder, so a cancel would have been submitted as an order.
+    assert.ok(!isExecutable('cancel', 'spot'));
+    assert.ok(!isExecutable('read', 'spot'));
     assert.ok(!isExecutable('trade', 'margin'));
     assert.ok(!isExecutable('trade', 'futures-coin'));
     assert.ok(!isExecutable('trade', 'convert'));
     assert.ok(!isExecutable('transfer', 'wallet'));
     assert.ok(!isExecutable('withdraw', 'wallet'));
-    assert.ok(GATEWAY_CAPABILITIES.length > 0);
+    assert.equal(GATEWAY_CAPABILITIES.length, 2);
   });
 
   for (const venue of ['margin', 'convert', 'wallet'] as const) {

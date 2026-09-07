@@ -47,7 +47,7 @@ function main(): void {
   // Gateway mode: Aegis holds the credentials and becomes the only write path.
   const adapter = new BinanceAdapter();
   const gateway = args.gateway
-    ? new ExecutionGateway(aegis, adapter, { dryRun: args.dryRun, refresher: adapter })
+    ? new ExecutionGateway(aegis, adapter, { dryRun: args.dryRun, refresher: adapter, canceller: adapter })
     : undefined;
 
   const handle = createHandler(aegis, gateway);

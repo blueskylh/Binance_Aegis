@@ -6,6 +6,9 @@ COPY package.json tsconfig.json ./
 RUN npm install --no-audit --no-fund
 COPY src ./src
 COPY test ./test
+# self-audit tests assert the shipped policies enable every mandatory guard,
+# so the build stage needs them too.
+COPY policies ./policies
 RUN npm run build && node --test "dist/test/**/*.test.js"
 
 FROM node:22-alpine AS runtime

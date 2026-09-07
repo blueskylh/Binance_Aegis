@@ -17,6 +17,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, renameSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 
 /** How long a reservation survives without release. Longer than any venue call. */
@@ -32,7 +33,14 @@ const sleepSync = (ms: number): void => {
 interface Reservation {
   id: string;
   takenAt: number;
-  pid: number;
+  /**
+   * Unique per registry instance, not per process.
+   *
+   * A PID identifies the process, so two ExecutionGateway instances inside one
+   * Node process shared a PID, ignored each other's durable entries, and could
+   * both reserve the same id.
+   */
+  owner: string;
 }
 
 export class InFlightRegistry {
@@ -45,6 +53,8 @@ export class InFlightRegistry {
    * reservation would blacklist an action id for the life of the process.
    */
   private readonly local = new Map<string, number>();
+  /** Identity of this registry instance, so sibling gateways do not collide. */
+  private readonly owner = randomUUID();
 
   constructor(path: string) {
     this.path = path;
@@ -103,18 +113,20 @@ export class InFlightRegistry {
     try {
       return this.withLock(() => {
         const live = this.read().filter((r) => now - r.takenAt < LEASE_MS);
-        if (live.some((r) => r.id === id && r.pid !== process.pid)) {
+        if (live.some((r) => r.id === id && r.owner !== this.owner)) {
           this.local.delete(id);
           return false;
         }
         this.sweepLocal(now);
-        this.write([...live.filter((r) => r.id !== id), { id, takenAt: now, pid: process.pid }]);
+        this.write([...live.filter((r) => r.id !== id), { id, takenAt: now, owner: this.owner }]);
         return true;
       });
     } catch {
-      // Could not reach the shared registry. Keep the local reservation — the
-      // in-process guarantee still holds, and refusing is safer than racing.
-      return true;
+      // Could not reach the shared registry. The comment here used to claim
+      // "refusing is safer than racing" while the code returned true, i.e.
+      // proceeded. Self-audit caught the contradiction: fail CLOSED.
+      this.local.delete(id);
+      return false;
     }
   }
 
