@@ -11,12 +11,12 @@
 
 `代理提议 · Aegis 裁决 · 币安执行`
 
-`21 条确定性规则` · `执行链路零 LLM` · `哈希链审计账本` · `零运行时依赖`
+`23 条确定性规则` · `执行链路零 LLM` · `哈希链审计账本` · `零运行时依赖`
 
 <br/>
 
-[![测试](https://img.shields.io/badge/测试-245%20全部通过-brightgreen?style=flat-square)]()
-[![安全回归](https://img.shields.io/badge/安全回归-17%20项-critical?style=flat-square)]()
+[![测试](https://img.shields.io/badge/测试-294%20全部通过-brightgreen?style=flat-square)]()
+[![安全回归](https://img.shields.io/badge/安全回归-35%20项-critical?style=flat-square)]()
 [![依赖](https://img.shields.io/badge/运行时依赖-0-blue?style=flat-square)]()
 [![Node](https://img.shields.io/badge/Node-%E2%89%A522-339933?style=flat-square&logo=node.js&logoColor=white)]()
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178C6?style=flat-square&logo=typescript&logoColor=white)]()
@@ -205,7 +205,7 @@ aegis execute --category trade --venue spot --symbol BTCUSDT \
 
 ### 三、Skills Hub 技能包
 
-`skill/agent-os-risk-firewall/SKILL.md` 遵循
+`skill/agent-os-execution-gateway/SKILL.md` 遵循
 [binance-skills-hub](https://github.com/binance/binance-skills-hub) 贡献格式,
 兼容 Claude Code、OpenClaw、LangChain 与 CrewAI。
 
@@ -268,7 +268,7 @@ guards:
 
 ---
 
-## 📏 21 条规则
+## 📏 23 条规则
 
 | 类别 | 规则 |
 |---|---|
@@ -341,7 +341,7 @@ $ aegis ledger verify   # 有人编辑过某条历史记录之后
 ## 🧪 工程质量
 
 ```
-245 个测试 · 0 失败 · 其中 17 项为安全回归 · 0 运行时依赖
+294 个测试 · 0 失败 · 其中 35 项为安全/硬化/自审回归 · 0 运行时依赖
 ```
 
 ```bash
@@ -354,10 +354,12 @@ npm run verify  # 测试 + 三幕 Demo(Demo 自校验不变量)
 - **零依赖,包括 YAML 解析器。** 安全控制平面不该拖着供应链。
 - **测试先行。** 每个模块先写测试、跑出红灯、再写实现。
 
-### 🩺 独立安全审计(v1.0.0 → v2.0.0)
+### 🩺 三轮安全审计(v1.0.0 → v2.1.0)
 
-一次对抗性审查在 v1.0.0 中复现了 **7 个缺陷**,全部已在 v2.0.0 修复,每个都配有具名回归测试。
+两轮独立对抗性审查共发现 **15 个缺陷**,我们自己的红队又发现 **6 个**。全部已修复,每个都配具名回归测试。
 **我们把它们公开列出,而不是悄悄打补丁** —— 一个隐藏自身审计发现的安全工具,不值得信任。
+
+**第一轮(v1.0.0)—— 「什么该被允许?」**
 
 | ID | 严重度 | v1.0.0 的缺陷 | 修复 |
 |:--:|---|---|---|
@@ -368,6 +370,29 @@ npm run verify  # 测试 + 三幕 Demo(Demo 自校验不变量)
 | SEC-05 | 高 | `review` 退出码为 `0`,导致 `&&` 自动执行待人工确认的订单 | 退出码 `0/1/2/3`,`review` 为非零 |
 | SEC-06 | 中 | `record_execution` 接受任意伪造数字 | 网关模式从真实成交结算;建议模式的局限已明确文档化 |
 | SEC-07 | 中 | 文档宣称账本「不可伪造」 | 诚实的威胁模型 + 可选 HMAC 模式 |
+
+**第二轮(v2.0.0)—— 「我执行的,是我判定的那一笔吗?」**
+
+| ID | 严重度 | v2.0.0 的缺陷 | 修复 |
+|:--:|---|---|---|
+| GW-01 | **严重** | 审批票据只存内存,CLI 跨进程审批实际上是断的 | 持久化 `approvals.json` + 显式状态机 |
+| GW-02 | **严重** | 适配器重算期货数量,把判定的 **$100** 变成 **100 BTC**(放大 10 万倍) | 数量在归一化阶段解析,适配器原样发送、禁止重算 |
+| GW-03 | **严重** | 未支持的 venue(margin/convert/wallet/COIN-M)被静默路由到现货 | 显式能力白名单,其余一律拒绝、绝不改道 |
+| GW-04 | 高 | 挂单中的 `NEW` 被记为完全成交;缺数据时回退到请求金额 | 状态感知对账,缺数据即为 0,绝不「假设成功」 |
+| GW-05 | 高 | 决策基于可能过期的仓位快照 | 执行前刷新 + `stale-position-data` 拒绝陈旧证据 |
+| GW-06 | 高 | `hasStopLoss: true` 被无条件相信 | 必须提供真实 `stopPrice`,校验方向与距离,并真正挂单 |
+| GW-07 | 低 | 版本号四处不一致 | 单一 `VERSION` 常量 |
+
+**第三轮(v2.1.0)—— 我们自己的红队**
+
+| ID | 严重度 | 缺陷 | 修复 |
+|:--:|---|---|---|
+| SA-01 | 高 | 票据消费是「读-判-写」,跨进程非原子,两个终端可重复兑付 | `mkdir` 跨进程锁 + 陈旧锁打破 |
+| SA-02 | 中 | 现货订单会被挂上期货专用的 `STOP_MARKET` | 仅在支持的 venue 上挂保护性止损 |
+| SA-03 | 低 | 提示用户运行 `aegis approve <id>`,但该命令默认 dry-run,静默无效 | 提示中包含 `--live` |
+| SA-04 | 低 | CLI 故障时每次调用写一条账本 note,淹没真实事件 | 抑制连续相同故障 |
+| SA-05 | **严重** | 重复守卫读的是账本(只知已完成订单),5 个并发相同 ID 全部执行 —— 而 MCP 超时重试是常态 | 首个 `await` 前同步预留 + 锁保护的跨进程注册表 |
+| SA-06 | 中 | 进程内预留集合无租约,泄漏的预留永久拉黑该 ID | 预留改为租约,过期自动清扫 |
 
 **架构层发现:** 同一次审查指出「两个并列 MCP + 系统提示词 = 建议,而非强制」。
 这个判断是对的 —— **网关模式因此而生。**
@@ -386,7 +411,7 @@ aegis doctor                      探测真实 binance-cli 集成并打印证据
 aegis check <action>              仅评估(建议模式,不执行)
 aegis record --actionId ..        记录成交(仅建议模式)
 aegis status                      风险姿态、回撤、额度进度条
-aegis rules                       列出 21 条生效规则
+aegis rules                       列出 23 条生效规则
 aegis policy show|validate        查看 / 校验策略文件
 aegis ledger verify|tail          审计账本
 aegis halt <reason> / resume      总闸开关

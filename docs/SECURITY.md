@@ -99,20 +99,29 @@ a capability you hand out separately.
 
 1. **Advisory mode cannot enforce.** See above. Use gateway mode if you need the
    guarantee rather than the habit.
-2. **The unkeyed ledger is tamper-evident, not tamper-proof.** It detects edits,
+
+2. **Gateway writes cover spot and USD-M futures only.** Margin, COIN-M,
+   convert, wallet transfers and on-chain actions are refused with
+   `unsupported-execution-capability`, never rerouted. A narrow, honest surface
+   beats a broad, wrong one.
+3. **The unkeyed ledger is tamper-evident, not tamper-proof.** It detects edits,
    deletions, reordering and naïve appends. An attacker with write access *and*
    knowledge of the algorithm can recompute the chain from the edit onward.
    Set `AEGIS_LEDGER_KEY` for HMAC mode, and publish `aegis ledger head`
    somewhere you do not control for an external anchor.
-3. **Aegis does not verify what was actually sent.** It authorizes an action and,
+4. **Protective stops are placed, not tracked.** The gateway attaches the stop
+   after an entry fills, but a later stop *fill* is not reconciled back into the
+   PnL counters. Run the guardian to keep positions current.
+
+5. **Aegis does not verify what was actually sent.** It authorizes an action and,
    in gateway mode, sends it. It cannot prove that a *separate* channel did not
    send something else. Pair it with the Agentic sub-account's own permission
    scopes for defence in depth.
-4. **Position data can be stale.** `reduceOnly` verification is only as fresh as
+6. **Position data can be stale.** `reduceOnly` verification is only as fresh as
    the last snapshot. Run the guardian, or call `aegis sync`, to keep it current.
    When Aegis cannot verify a reduction claim it refuses the exemption rather
    than guessing.
-5. **It cannot make a losing strategy profitable.** It bounds the blast radius of
+7. **It cannot make a losing strategy profitable.** It bounds the blast radius of
    error. That is all.
 
 ---
@@ -138,6 +147,39 @@ is not one you should trust.
 plus a system-prompt instruction is advice, not enforcement. That was correct,
 and it is the reason gateway mode exists.
 
+### Round 2 — v2.0.0, execution boundary (GW-01 … GW-06)
+
+The second review accepted the architecture and attacked the *boundary*. Where
+round 1 failed at "what should be allowed?", round 2 failed at a subtler
+question: **is the thing I execute the same thing I judged?**
+
+| ID | Severity | Defect in v2.0.0 | Fix |
+|:--:|---|---|---|
+| GW-01 | **Critical** | Approval tickets lived in an in-memory `Map`; the CLI's two-process approve flow could never find them, so human-in-the-loop was broken end to end | Durable `approvals.json` with an explicit state machine |
+| GW-02 | **Critical** | The adapter re-derived futures quantity as `notional / (price ?? 1)`, turning a judged **$100** order into **100 BTC** — a 100,000x amplification with every control passing | Quantity resolved during normalization and sent verbatim; the adapter refuses to compute one |
+| GW-03 | **Critical** | Unsupported venues (`margin`, `convert`, `wallet`, COIN-M) were silently rerouted to spot | Explicit capability allowlist; anything else is denied, never rerouted |
+| GW-04 | High | A resting `NEW` order was booked as a full fill, and missing fill data fell back to the requested size | Status-aware reconciliation; absent data means zero, never "assume it worked" |
+| GW-05 | High | Decisions ran against a possibly stale position snapshot, so "verified" exits could rest on old evidence | Gateway refreshes before judging; `stale-position-data` refuses exemptions past a configurable age |
+| GW-06 | High | `hasStopLoss: true` was believed — a boolean the agent sets itself | A concrete `stopPrice` is required, validated for side and distance, and actually placed after the entry fills |
+| GW-07 | Low | `package.json`, CLI, MCP handshake and skill manifest all still said `1.0.0` | One `VERSION` constant, imported everywhere |
+
+### Round 3 — self-audit of v2.1.0 (SA-01 … SA-06)
+
+Found by attacking our own code rather than waiting for a reviewer.
+
+| ID | Severity | Defect | Fix |
+|:--:|---|---|---|
+| SA-01 | **High** | `ApprovalStore.consume` was read → check → write: atomic in one process, not across two. Two terminals could redeem one ticket | `mkdir`-based cross-process lock with stale-lock breaking |
+| SA-02 | Medium | A spot entry carrying a `stopPrice` would emit a futures-only `STOP_MARKET` | Protective stops only on stop-capable venues |
+| SA-03 | Low | The parked summary told operators to run `aegis approve <id>`, which defaults to dry-run and silently does nothing | The instruction now includes `--live` |
+| SA-04 | Low | A broken `binance-cli` wrote one ledger note per call, burying real events | Identical consecutive failures are suppressed |
+| SA-05 | **Critical** | `duplicate-action` reads the ledger, which only knows about *completed* orders. Five concurrent submissions of one id all passed the check and all executed — and an MCP timeout retry is routine | Synchronous in-flight reservation taken before the first `await`, plus a lock-protected registry for cross-process |
+| SA-06 | Medium | The in-process reservation set had no lease, so a leaked reservation blacklisted an action id for the life of the process | Reservations are leases; expired entries are swept |
+
+Regression tests: [`test/security.test.ts`](../test/security.test.ts),
+[`test/gateway-hardening.test.ts`](../test/gateway-hardening.test.ts),
+[`test/self-audit.test.ts`](../test/self-audit.test.ts).
+
 ---
 
 ## Reporting
@@ -156,3 +198,5 @@ worth more than a description. Regression tests live in
 - [ ] Publish `aegis ledger head` somewhere append-only (a git commit works)
 - [ ] Run the guardian so position data — and therefore exit verification — stays fresh
 - [ ] Re-run `aegis doctor` after any `binance-cli` upgrade
+- [ ] Confirm `aegis capabilities` matches what you expect the agent to be able to do
+- [ ] Reuse action ids on retry so `action-in-flight` can dedupe

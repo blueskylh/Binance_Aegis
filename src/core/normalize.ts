@@ -83,6 +83,54 @@ function resolveMark(ctx: RiskContext, key: string): number | null {
   return null;
 }
 
+/** Venues that price in base quantity and cannot accept a quote-sized order. */
+const QUANTITY_ONLY_VENUES = new Set<Venue>(['futures-usds', 'futures-coin', 'margin']);
+
+/**
+ * Resolve the base-asset quantity that will actually be sent.
+ *
+ * This fixes the worst defect found in v2.0.0: the engine judged
+ * `quoteQuantity: 100` as a $100 order while the adapter computed
+ * `quantity = notionalUsd / (price ?? 1)` — sending **100 BTC**, a 100,000x
+ * amplification, with every policy check having passed cleanly.
+ *
+ * The rule is now absolute: **whatever the engine judged is what gets sent.**
+ * Derivatives quantities are resolved here, before any rule runs, and the
+ * adapter is forbidden from re-deriving them. If a quantity cannot be resolved
+ * from a trustworthy price, normalization fails and the engine denies.
+ */
+function resolveExecutionQuantity(
+  venue: Venue,
+  category: ActionCategory,
+  symbol: string | null,
+  quantity: number | null,
+  price: number | null,
+  notionalUsd: number,
+  ctx: RiskContext,
+): number | null {
+  if (category !== 'trade') return null;
+  if (quantity !== null) return quantity;
+  if (!QUANTITY_ONLY_VENUES.has(venue)) return null; // spot can size in quote terms
+  if (notionalUsd <= 0) return null;
+
+  const reference = price ?? (symbol !== null ? resolveMark(ctx, symbol) : null);
+  if (reference === null || reference <= 0) {
+    throw new NormalizationError(
+      `cannot resolve an execution quantity for a ${venue} order on ${symbol ?? 'an unknown symbol'}: ` +
+      'no limit price and no reference mark. Aegis refuses to send a quantity it did not judge — ' +
+      'supply an explicit `quantity`, or a `price`, or seed ctx.marks.',
+    );
+  }
+
+  const qty = notionalUsd / reference;
+  if (!Number.isFinite(qty) || qty <= 0) {
+    throw new NormalizationError(`resolved a non-finite execution quantity for ${symbol ?? venue}`);
+  }
+  // 8 dp sits below the step size of every Binance perpetual; anything that
+  // still violates stepSize is rejected by the venue, which fails closed.
+  return Math.round(qty * 1e8) / 1e8;
+}
+
 /** Convert a ProposedAction into the canonical form every rule consumes. */
 export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): NormalizedAction {
   if (proposal === null || typeof proposal !== 'object') {
@@ -130,6 +178,7 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
   const price = optionalFinitePositive(proposal.price, 'price');
   const quoteQuantity = optionalFinitePositive(proposal.quoteQuantity, 'quoteQuantity');
   const leverage = optionalFinitePositive(proposal.leverage, 'leverage');
+  const stopPrice = optionalFinitePositive(proposal.stopPrice, 'stopPrice');
 
   let notionalUsd = 0;
   let notionalBasis: NormalizedAction['notionalBasis'] = 'none';
@@ -181,6 +230,11 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
     ? proposal.id.trim()
     : stableId(proposal, ctx.now);
 
+  const roundedNotional = Math.round(notionalUsd * 1e8) / 1e8;
+  const executionQuantity = resolveExecutionQuantity(
+    venue as Venue, category, symbol, quantity, price, roundedNotional, ctx,
+  );
+
   return {
     id,
     ts: ctx.now,
@@ -195,9 +249,11 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
     leverage,
     reduceOnly: proposal.reduceOnly === true,
     closePosition: proposal.closePosition === true,
-    hasStopLoss: proposal.hasStopLoss === true,
+    hasStopLoss: proposal.hasStopLoss === true || stopPrice !== null,
+    stopPrice,
+    executionQuantity,
     destination: typeof proposal.destination === 'string' ? proposal.destination : null,
-    notionalUsd: Math.round(notionalUsd * 1e8) / 1e8,
+    notionalUsd: roundedNotional,
     notionalBasis,
     raw: proposal,
   };

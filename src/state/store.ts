@@ -205,8 +205,13 @@ export class RiskStore {
 
   /** Assemble the immutable context the engine evaluates against. */
   buildContext(now: number): RiskContext {
+    // A snapshot that was never taken is infinitely stale, not fresh.
+    const snapshotAgeMs = this.state.updatedAt > 0
+      ? Math.max(0, now - this.state.updatedAt)
+      : Number.MAX_SAFE_INTEGER;
     return {
       now,
+      snapshotAgeMs,
       equityUsd: this.state.equityUsd,
       positions: this.state.positions.map((p) => ({ ...p })),
       marks: { ...this.state.marks },

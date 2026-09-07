@@ -56,6 +56,7 @@ class SpyExecutor implements OrderExecutor {
       symbol: action.symbol ?? '',
       status: 'FILLED',
       filledNotionalUsd: action.notionalUsd * this.slippageFactor,
+      filledQuantity: action.executionQuantity ?? 0,
       realizedPnlUsd: 0,
       raw: { simulated: true },
     };

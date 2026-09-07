@@ -12,7 +12,7 @@ import { evaluate, RULES } from './core/engine.js';
 import { Ledger, type VerifyResult } from './ledger/ledger.js';
 import { loadPolicyFile, loadPolicyFromString } from './policy/schema.js';
 import { RiskStore, type AccountSnapshot, type ExecutionRecord } from './state/store.js';
-import type { Decision, LedgerEntry, NormalizedAction, Policy, ProposedAction } from './types.js';
+import type { Decision, LedgerEntry, NormalizedAction, Policy, ProposedAction, RiskContext } from './types.js';
 
 export interface AegisOptions {
   /** Path to a YAML/JSON policy file. */
@@ -126,6 +126,17 @@ export class Aegis {
   /** Full decision object, for callers that want the normalized action too. */
   evaluateOnly(proposal: ProposedAction): Decision {
     return evaluate(proposal, this.policy, this.store.buildContext(this.now()));
+  }
+
+  /**
+   * Evaluate against a context with specific fields overridden.
+   *
+   * Used by tests and by `aegis simulate` to reason about conditions that are
+   * awkward to reproduce for real, such as a stale position snapshot.
+   */
+  evaluateWith(proposal: ProposedAction, overrides: Partial<RiskContext>): Decision {
+    const ctx = { ...this.store.buildContext(this.now()), ...overrides };
+    return evaluate(proposal, this.policy, ctx);
   }
 
   /**

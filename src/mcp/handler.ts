@@ -10,13 +10,15 @@
  * `aegis_guard_action` says `allow`.
  */
 
+import { VERSION } from '../version.js';
+import { GATEWAY_CAPABILITIES } from '../gateway/capabilities.js';
 import type { Aegis } from '../aegis.js';
 import type { ExecutionGateway } from '../gateway/executor.js';
 import type { ProposedAction } from '../types.js';
 
 export const PROTOCOL_VERSION = '2024-11-05';
 export const SERVER_NAME = 'aegis';
-export const SERVER_VERSION = '1.0.0';
+export const SERVER_VERSION = VERSION;
 
 export interface JsonRpcRequest {
   jsonrpc?: string;
@@ -58,6 +60,7 @@ const ACTION_SCHEMA: Record<string, unknown> = {
     orderType: { type: 'string', enum: ['MARKET', 'LIMIT', 'STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP_LOSS_LIMIT', 'OCO'] },
     quantity: { type: 'number', description: 'Base-asset quantity.' },
     price: { type: 'number', description: 'Limit price, when applicable.' },
+    stopPrice: { type: 'number', description: 'Protective stop trigger price. Validated, and actually placed in gateway mode.' },
     quoteQuantity: { type: 'number', description: 'Quote-asset notional (quoteOrderQty).' },
     leverage: { type: 'number' },
     reduceOnly: { type: 'boolean', description: 'True when the order can only reduce an existing position. Verified against real positions.' },
@@ -85,6 +88,35 @@ export const TOOLS: readonly ToolDef[] = Object.freeze([
     description:
       'List actions parked awaiting human approval. Show these to the user when they ask what is waiting on them.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'aegis_approve',
+    description:
+      'Redeem a parked approval ticket and execute it. ONLY call this after the human has explicitly said yes to ' +
+      'that specific ticket. The action is re-evaluated at redemption, so a policy change or kill-switch since ' +
+      'parking still wins. Tickets are single-use.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string', description: 'The ticket id returned by aegis_execute.' },
+        approver: { type: 'string', description: 'Who approved it — recorded in the ledger.' },
+      },
+      required: ['ticketId'],
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'aegis_reject',
+    description: 'Discard a parked approval ticket without executing it. Use when the human declines.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: { type: 'string' },
+        reason: { type: 'string' },
+      },
+      required: ['ticketId'],
+      additionalProperties: false,
+    },
   },
   {
     name: 'aegis_guard_action',
@@ -126,6 +158,13 @@ export const TOOLS: readonly ToolDef[] = Object.freeze([
     description:
       'Return the active policy — limits, allowlists, guards — plus the list of rules being enforced. ' +
       'Use it to explain to the user why something was blocked, or what would need to change to permit it.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'aegis_capabilities',
+    description:
+      'What the gateway can actually execute. Anything absent is denied rather than rerouted. Check this before ' +
+      'promising the user a venue is available.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
@@ -225,6 +264,32 @@ export function createHandler(
       case 'aegis_pending_approvals':
         if (!gateway) return textResult({ pending: [], note: 'gateway mode is not enabled' });
         return textResult({ pending: gateway.listPending() });
+
+      case 'aegis_approve': {
+        if (!gateway) return textResult({ error: 'gateway mode is not enabled on this server' }, true);
+        const ticketId = String(args['ticketId'] ?? '');
+        if (ticketId === '') return textResult({ error: 'ticketId is required' }, true);
+        const outcome = await gateway.approve(ticketId, String(args['approver'] ?? 'human'));
+        return textResult({
+          status: outcome.status,
+          verdict: outcome.verdict,
+          summary: outcome.summary,
+          ticketId: outcome.ticketId,
+          fill: outcome.fill,
+          protectiveStop: outcome.protectiveStop,
+          error: outcome.error,
+        });
+      }
+
+      case 'aegis_reject': {
+        if (!gateway) return textResult({ error: 'gateway mode is not enabled on this server' }, true);
+        const ticketId = String(args['ticketId'] ?? '');
+        const existed = gateway.reject(ticketId, String(args['reason'] ?? 'declined by human'));
+        return textResult({ rejected: existed, ticketId });
+      }
+
+      case 'aegis_capabilities':
+        return textResult({ capabilities: GATEWAY_CAPABILITIES });
 
       case 'aegis_guard_action':
         return textResult(aegis.guard(args as unknown as ProposedAction));

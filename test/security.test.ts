@@ -47,6 +47,7 @@ function ctx(over: Partial<RiskContext> = {}): RiskContext {
     },
     recentActionIds: [],
     killSwitch: false,
+    snapshotAgeMs: 0,
     ...over,
   };
 }
@@ -233,7 +234,8 @@ describe('SEC-04 — reduceOnly claims are validated against real positions', ()
       {
         id: 'x', ts: NOON, category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT',
         asset: null, side: 'SELL', orderType: 'MARKET', quantity: null, price: null, leverage: null,
-        reduceOnly: true, closePosition: false, hasStopLoss: false, destination: null,
+        reduceOnly: true, closePosition: false, hasStopLoss: false, stopPrice: null,
+        executionQuantity: 0.005, destination: null,
         notionalUsd: 500, notionalBasis: 'quote-quantity', raw: {} as ProposedAction,
       },
       ctx({ positions: [longBtc(1_000)] }),

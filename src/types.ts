@@ -66,7 +66,15 @@ export interface ProposedAction {
   reduceOnly?: boolean;
   /** True when the order closes the whole position (Binance `closePosition`). */
   closePosition?: boolean;
-  /** True when the agent attached a protective stop to this entry. */
+  /**
+   * Concrete protective-stop trigger price.
+   *
+   * Replaces the v2.0.0 `hasStopLoss` boolean, which the agent could simply
+   * assert. A price can be validated — right side of the entry, sane distance —
+   * and in gateway mode it is actually placed.
+   */
+  stopPrice?: number;
+  /** Legacy claim flag. Retained for compatibility; no longer sufficient on its own. */
   hasStopLoss?: boolean;
   /** Destination wallet / address label for transfers. */
   destination?: string;
@@ -90,6 +98,17 @@ export interface NormalizedAction {
   reduceOnly: boolean;
   closePosition: boolean;
   hasStopLoss: boolean;
+  /** Validated protective-stop trigger price, or null. */
+  stopPrice: number | null;
+  /**
+   * The base-asset quantity that will actually be sent to the venue.
+   *
+   * Null only when the venue can size natively in quote terms (spot
+   * `quoteOrderQty`). For derivatives this is always resolved at normalization
+   * time, so the engine judges the exact order the adapter will place — the
+   * adapter is forbidden from re-deriving it.
+   */
+  executionQuantity: number | null;
   destination: string | null;
   /** USD notional the engine sizes limits against. 0 for non-value actions. */
   notionalUsd: number;
@@ -143,6 +162,14 @@ export interface RiskContext {
   recentActionIds: string[];
   /** Operator-triggered global halt. Overrides everything. */
   killSwitch: boolean;
+  /**
+   * Age of the position/equity snapshot in ms.
+   *
+   * Reduce-only verification is only as trustworthy as the positions it checks
+   * against. When the snapshot is older than the policy allows, the exemption is
+   * refused rather than granted on stale evidence.
+   */
+  snapshotAgeMs: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -161,6 +188,8 @@ export interface PolicyLimits {
   maxOrdersPerMinute: number | null;
   maxOrdersPerHour: number | null;
   maxPositionsOpen: number | null;
+  /** Refuse reduce-only exemptions when the position snapshot is older than this. */
+  maxPositionSnapshotAgeSec: number | null;
 }
 
 export interface PolicyAccess {
@@ -184,6 +213,8 @@ export interface PolicyGuards {
   reviewAboveNotionalUsd: number | null;
   /** Block replays of an action id already seen. */
   blockDuplicateActionIds: boolean;
+  /** Reject protective stops further than this % from entry. */
+  maxStopDistancePct: number | null;
 }
 
 export interface Policy {

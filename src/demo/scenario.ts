@@ -77,6 +77,7 @@ class VenueSpy implements OrderExecutor {
       symbol: action.symbol ?? '',
       status: 'FILLED',
       filledNotionalUsd: action.notionalUsd,
+      filledQuantity: action.executionQuantity ?? 0,
       realizedPnlUsd: 0,
       raw: { simulated: true },
     };
@@ -89,7 +90,7 @@ function banner(): void {
   out(bold(magenta('  ║   AEGIS — the execution control plane for Binance Agent OS             ║')));
   out(bold(magenta('  ║                                                                        ║')));
   out(bold(magenta('  ║   The agent proposes. Aegis decides. Binance executes.                  ║')));
-  out(bold(magenta('  ║   21 deterministic rules · no LLM in the enforcement path               ║')));
+  out(bold(magenta('  ║   23 deterministic rules · no LLM in the enforcement path               ║')));
   out(bold(magenta('  ╚════════════════════════════════════════════════════════════════════════╝')));
   out();
 }
@@ -133,6 +134,21 @@ async function actOne(gw: ExecutionGateway, venue: VenueSpy): Promise<void> {
   expect(venue.reached.length === before, 'a blocked order must never reach the venue');
   out();
 
+  const derivative: ProposedAction = {
+    id: 'a2b', category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT',
+    side: 'BUY', orderType: 'MARKET', quoteQuantity: 100, stopPrice: 95_000,
+  };
+  const rd = await gw.execute(derivative);
+  const sent = venue.reached.at(-2);
+  out(`  ${dim('A $100 futures order — what actually goes on the wire?')}`);
+  out(`  ${dim('judged   ')} ${bold('$100 notional')}`);
+  out(`  ${dim('sent     ')} ${bold(`${String(sent?.executionQuantity)} BTC`)} ${dim(`= $${Math.round((sent?.executionQuantity ?? 0) * 100_000)}`)}`);
+  out(dim('                The engine resolves the quantity and the adapter sends exactly that.'));
+  out(dim('                An earlier build re-derived it and would have sent 100 BTC — $10,000,000.'));
+  expect(rd.status === 'executed', 'a compliant derivatives order must execute');
+  expect(sent?.executionQuantity === 0.001, 'what is sent must equal what was judged');
+  out();
+
   const big: ProposedAction = {
     id: 'a3', category: 'trade', venue: 'spot', symbol: 'BTCUSDT',
     side: 'BUY', orderType: 'MARKET', quoteQuantity: 400,
@@ -168,6 +184,17 @@ async function actTwo(gw: ExecutionGateway, venue: VenueSpy): Promise<void> {
   expect(venue.reached.length === before, 'nothing may reach the venue on a withdraw attempt');
   out();
 
+  const wrongVenue: ProposedAction = {
+    id: 'a4b', category: 'trade', venue: 'margin', symbol: 'BTCUSDT',
+    side: 'BUY', orderType: 'MARKET', quoteQuantity: 100,
+  };
+  const rv = await gw.execute(wrongVenue);
+  out(`  ${dim('Third attempt:')} route through a venue the gateway does not implement`);
+  verdictLine('Margin order — unsupported by this gateway', rv.status, rv.summary);
+  out(dim('                • refused outright, never rerouted to spot'));
+  expect(rv.status === 'blocked', 'an unsupported venue must be refused, not rerouted');
+  out();
+
   const spoof: ProposedAction = {
     id: 'a5', category: 'trade', venue: 'futures-usds', symbol: 'ETHUSDT',
     side: 'SELL', orderType: 'MARKET', quoteQuantity: 9_000, reduceOnly: true,
@@ -197,7 +224,7 @@ async function actThree(aegis: Aegis, gw: ExecutionGateway, venue: VenueSpy): Pr
 
   const reentry: ProposedAction = {
     id: 'a6', category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT',
-    side: 'BUY', orderType: 'MARKET', quoteQuantity: 100, hasStopLoss: true,
+    side: 'BUY', orderType: 'MARKET', quoteQuantity: 100, stopPrice: 95_000,
   };
   const r1 = await gw.execute(reentry);
   verdictLine('Agent tries to re-enter after the loss', r1.status, r1.summary);

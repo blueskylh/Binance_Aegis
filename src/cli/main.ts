@@ -12,9 +12,10 @@ import { Aegis, DEFAULT_POLICY_YAML, defaultDataDir } from '../aegis.js';
 import { loadPolicyFile } from '../policy/schema.js';
 import { bar, bold, cyan, dim, green, red, severityDot, table, usd, verdictBadge, yellow } from './format.js';
 import { EXIT, exitCodeFor } from './exit.js';
+import { VERSION } from '../version.js';
 import type { ProposedAction } from '../types.js';
 
-const VERSION = '1.0.0';
+
 
 interface GlobalOpts {
   policyPath?: string;
@@ -78,6 +79,8 @@ ${bold('COMMANDS')}
   ${cyan('approve')} <ticket>      Approve a parked action and execute it
   ${cyan('pending')}               List actions awaiting human approval
   ${cyan('doctor')}                Probe the live binance-cli integration, print evidence
+  ${cyan('sync')}                  Refresh equity / positions / marks from Binance
+  ${cyan('capabilities')}          What the gateway can actually execute
   ${cyan('check')} <action>        Advisory-only evaluation (does NOT execute)
   ${cyan('record')} --actionId ..   Record an execution (advisory mode only)
   ${cyan('status')}                Current risk posture and budget consumption
@@ -146,7 +149,7 @@ function cmdCheck(g: GlobalOpts, args: string[]): number {
   out();
   if (result.verdict === 'review') {
     out(yellow('  → HUMAN CONFIRMATION REQUIRED. Exit code 3 — `&&` will NOT continue.'));
-    out(dim('    Approve deliberately with:  aegis approve ' + result.actionId));
+    out(dim('    In gateway mode this parks a ticket; approve it with `aegis approve <ticket> --live`.'));
     out();
   }
   return exitCodeFor(result.verdict);
@@ -221,7 +224,58 @@ async function cmdDoctor(): Promise<number> {
 async function buildGateway(g: GlobalOpts, dryRun: boolean) {
   const { BinanceAdapter } = await import('../adapters/binance.js');
   const { ExecutionGateway } = await import('../gateway/executor.js');
-  return new ExecutionGateway(makeAegis(g), new BinanceAdapter(), { dryRun });
+  const adapter = new BinanceAdapter();
+  // The adapter doubles as the refresher, so every decision runs against
+  // positions pulled moments earlier rather than a stale snapshot (GW-05).
+  return new ExecutionGateway(makeAegis(g), adapter, { dryRun, refresher: adapter });
+}
+
+/** Pull fresh account state from Binance so reduce-only checks have real evidence. */
+async function cmdSync(g: GlobalOpts): Promise<number> {
+  const { BinanceAdapter } = await import('../adapters/binance.js');
+  const adapter = new BinanceAdapter();
+  const aegis = makeAegis(g);
+
+  if (!(await adapter.available())) {
+    out(red('binance-cli not found — cannot refresh. Run `aegis doctor` for install instructions.'));
+    return EXIT.DENY;
+  }
+
+  try {
+    const [equityUsd, positions, marks] = await Promise.all([
+      adapter.equityUsd(),
+      adapter.positions(),
+      adapter.marks(['BTCUSDT', 'ETHUSDT', 'BNBUSDT']),
+    ]);
+    aegis.updateAccount({ equityUsd, positions, marks });
+    if (g.json) {
+      out(JSON.stringify({ synced: true, equityUsd, positions: positions.length, marks }, null, 2));
+      return EXIT.ALLOW;
+    }
+    out(green(`✅ synced — equity ${usd(equityUsd)}, ${positions.length} open position(s)`));
+    for (const p of positions) {
+      out(dim(`   ${p.symbol} ${p.quantity > 0 ? 'LONG' : 'SHORT'} ${usd(Math.abs(p.notionalUsd))}`));
+    }
+    return EXIT.ALLOW;
+  } catch (err) {
+    out(red(`sync failed: ${(err as Error).message}`));
+    return EXIT.DENY;
+  }
+}
+
+async function cmdCapabilities(g: GlobalOpts): Promise<number> {
+  const { GATEWAY_CAPABILITIES } = await import('../gateway/capabilities.js');
+  if (g.json) { out(JSON.stringify(GATEWAY_CAPABILITIES, null, 2)); return EXIT.ALLOW; }
+  out();
+  out(bold('  GATEWAY EXECUTION CAPABILITIES'));
+  out(dim('  Anything not listed here is denied, never rerouted.'));
+  out();
+  out('  ' + table(
+    GATEWAY_CAPABILITIES.map((c) => [cyan(c.category), c.venue, dim(c.note)]),
+    ['CATEGORY', 'VENUE', 'IMPLEMENTATION'],
+  ).split('\n').join('\n  '));
+  out();
+  return EXIT.ALLOW;
 }
 
 interface RenderableOutcome {
@@ -481,6 +535,8 @@ async function main(): Promise<number> {
     case 'approve': return await cmdApprove(globals, args);
     case 'pending': return await cmdPending(globals);
     case 'doctor': return await cmdDoctor();
+    case 'sync': return await cmdSync(globals);
+    case 'capabilities': return await cmdCapabilities(globals);
     case 'record': return cmdRecord(globals, args);
     case 'status': return cmdStatus(globals);
     case 'rules': return cmdRules(globals);

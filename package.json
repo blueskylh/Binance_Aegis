@@ -1,7 +1,7 @@
 {
   "name": "@aegis/agent-os-firewall",
-  "version": "1.0.0",
-  "description": "Aegis — the deterministic risk firewall and tamper-evident audit ledger for Binance Agent OS. Every AI agent action is evaluated against a declarative policy before it reaches Binance, and hash-chained into an append-only ledger.",
+  "version": "2.1.0",
+  "description": "Aegis \u2014 the deterministic risk firewall and tamper-evident audit ledger for Binance Agent OS. Every AI agent action is evaluated against a declarative policy before it reaches Binance, and hash-chained into an append-only ledger.",
   "type": "module",
   "license": "MIT",
   "engines": {
@@ -32,7 +32,7 @@
     "mcp": "npm run build && node dist/src/mcp/server.js",
     "guardian": "npm run build && node dist/src/guardian/run.js",
     "aegis": "npm run build && node dist/src/cli/main.js",
-    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node dist/src/demo/scenario.js --quiet && echo '\\n✅ VERIFY PASSED'",
+    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node dist/src/demo/scenario.js --quiet && echo '\\n\u2705 VERIFY PASSED'",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

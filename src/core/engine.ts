@@ -106,6 +106,8 @@ export function evaluate(proposal: ProposedAction, policy: Policy, ctx: RiskCont
       reduceOnly: false,
       closePosition: false,
       hasStopLoss: false,
+      stopPrice: null,
+      executionQuantity: null,
       destination: null,
       notionalUsd: 0,
       notionalBasis: 'none',

@@ -9,10 +9,10 @@
 
 **The agent proposes. Aegis decides. Binance executes.**
 
-*21 deterministic rules · zero LLMs in the enforcement path · hash-chained audit ledger · zero runtime dependencies*
+*23 deterministic rules · zero LLMs in the enforcement path · hash-chained audit ledger · zero runtime dependencies*
 
-[![tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)]()
-[![security](https://img.shields.io/badge/security%20regressions-17-critical)]()
+[![tests](https://img.shields.io/badge/tests-294%20passing-brightgreen)]()
+[![security](https://img.shields.io/badge/security%20regressions-35-critical)]()
 [![deps](https://img.shields.io/badge/runtime%20dependencies-0-blue)]()
 [![node](https://img.shields.io/badge/node-%E2%89%A522-green)]()
 [![license](https://img.shields.io/badge/license-MIT-black)]()
@@ -145,7 +145,7 @@ aegis check --category trade --venue spot --symbol BTCUSDT --side BUY --quoteQua
 
 ### As a Skills Hub skill
 
-`skill/agent-os-risk-firewall/SKILL.md` follows the
+`skill/agent-os-execution-gateway/SKILL.md` follows the
 [binance-skills-hub](https://github.com/binance/binance-skills-hub) contribution format and works
 with Claude Code, OpenClaw, LangChain and CrewAI.
 
@@ -200,7 +200,7 @@ Unknown keys are a hard error, never a warning. A typo like `maxLevrage:` that s
 
 ---
 
-## The 21 rules
+## The 23 rules
 
 | Category | Rules |
 |---|---|
@@ -272,7 +272,7 @@ worse than none.
 ## Engineering
 
 ```
-245 tests · 0 failures · 17 security regressions · 0 runtime dependencies
+294 tests · 0 failures · 35 security regressions · 0 runtime dependencies
 ```
 
 ```bash

@@ -46,6 +46,7 @@ const LIMIT_KEYS = [
   'maxOrdersPerMinute',
   'maxOrdersPerHour',
   'maxPositionsOpen',
+  'maxPositionSnapshotAgeSec',
 ] as const;
 
 const GUARD_KEYS = [
@@ -56,6 +57,7 @@ const GUARD_KEYS = [
   'cooldownSecondsAfterLoss',
   'reviewAboveNotionalUsd',
   'blockDuplicateActionIds',
+  'maxStopDistancePct',
 ] as const;
 
 const ACCESS_KEYS = ['categories', 'venues', 'symbols'] as const;
@@ -77,6 +79,7 @@ export const DEFAULT_POLICY: Policy = Object.freeze({
     maxOrdersPerMinute: null,
     maxOrdersPerHour: null,
     maxPositionsOpen: null,
+    maxPositionSnapshotAgeSec: null,
   }) as PolicyLimits,
   allow: Object.freeze({ categories: null, venues: null, symbols: null }) as PolicyAccess,
   deny: Object.freeze({ categories: null, venues: null, symbols: null }) as PolicyAccess,
@@ -88,6 +91,7 @@ export const DEFAULT_POLICY: Policy = Object.freeze({
     cooldownSecondsAfterLoss: null,
     reviewAboveNotionalUsd: null,
     blockDuplicateActionIds: true,
+    maxStopDistancePct: null,
   }) as PolicyGuards,
 }) as Policy;
 
@@ -256,6 +260,7 @@ export function loadPolicyFromString(source: string): Policy {
     maxOrdersPerMinute: readNumberOrNull(limitsObj['maxOrdersPerMinute'], 'limits.maxOrdersPerMinute'),
     maxOrdersPerHour: readNumberOrNull(limitsObj['maxOrdersPerHour'], 'limits.maxOrdersPerHour'),
     maxPositionsOpen: readNumberOrNull(limitsObj['maxPositionsOpen'], 'limits.maxPositionsOpen'),
+    maxPositionSnapshotAgeSec: readNumberOrNull(limitsObj['maxPositionSnapshotAgeSec'], 'limits.maxPositionSnapshotAgeSec'),
   };
 
   const guardsRaw = doc['guards'];
@@ -277,6 +282,7 @@ export function loadPolicyFromString(source: string): Policy {
       'guards.blockDuplicateActionIds',
       DEFAULT_POLICY.guards.blockDuplicateActionIds,
     ),
+    maxStopDistancePct: readNumberOrNull(guardsObj['maxStopDistancePct'], 'guards.maxStopDistancePct', { max: 100 }),
   };
 
   return {

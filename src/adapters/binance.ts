@@ -204,7 +204,15 @@ export class BinanceAdapter implements OrderExecutor {
       throw new Error('placeOrder requires a symbol and a side');
     }
 
-    const venue = action.venue === 'futures-usds' ? 'futures-usds' : 'spot';
+    // GW-03: never guess a venue. Rerouting an unsupported instrument to spot is
+    // how you execute something other than what was authorised.
+    if (action.venue !== 'spot' && action.venue !== 'futures-usds') {
+      throw new Error(
+        `the gateway cannot place orders on "${action.venue}" — supported venues are spot and futures-usds`,
+      );
+    }
+    const venue = action.venue;
+
     const cmd: string[] = [
       venue, 'new-order',
       '--symbol', action.symbol,
@@ -214,15 +222,27 @@ export class BinanceAdapter implements OrderExecutor {
     ];
 
     if (venue === 'spot') {
-      if (action.quantity !== null) cmd.push('--quantity', String(action.quantity));
+      // Spot can size natively in quote terms, which is unambiguous.
+      if (action.executionQuantity !== null) cmd.push('--quantity', String(action.executionQuantity));
       else cmd.push('--quote-order-qty', String(action.notionalUsd));
     } else {
-      const qty = action.quantity ?? action.notionalUsd / (action.price ?? 1);
-      cmd.push('--quantity', String(qty));
+      // GW-02: the adapter must NEVER re-derive a quantity. v2.0.0 computed
+      // `notionalUsd / (price ?? 1)`, which turned a judged $100 order into
+      // 100 BTC. The engine resolved this number; we send exactly that.
+      if (action.executionQuantity === null) {
+        throw new Error(
+          'refusing to place a derivatives order with no engine-resolved quantity — ' +
+          'this would mean sending a size the policy never judged',
+        );
+      }
+      cmd.push('--quantity', String(action.executionQuantity));
       if (action.reduceOnly) cmd.push('--reduce-only', 'TRUE');
       if (action.closePosition) cmd.push('--close-position', 'TRUE');
+      if (action.orderType === 'STOP_MARKET' || action.orderType === 'TAKE_PROFIT_MARKET') {
+        cmd.push('--stop-price', String(action.stopPrice ?? action.price));
+      }
     }
-    if (action.price !== null) cmd.push('--price', String(action.price));
+    if (action.price !== null && action.orderType === 'LIMIT') cmd.push('--price', String(action.price));
     if (action.orderType === 'LIMIT') cmd.push('--time-in-force', 'GTC');
 
     const r = await run(this.bin, this.args(cmd), this.timeoutMs);
@@ -234,14 +254,18 @@ export class BinanceAdapter implements OrderExecutor {
     const inner = (body['data'] as Record<string, unknown> | undefined) ?? body;
 
     // Prefer the venue's own numbers over anything the caller asserted.
-    const executedQty = num(inner['executedQty'] ?? inner['origQty']);
+    // GW-04: report ONLY what the venue says filled. v2.0.0 fell back to the
+    // requested notional when fill fields were absent, so a resting LIMIT order
+    // was booked as a completed trade. Absent data now means zero, not "assume
+    // it worked" — a firewall must not launder a request into a fill.
+    const executedQty = num(inner['executedQty']);
     const cummulativeQuote = num(inner['cummulativeQuoteQty'] ?? inner['cumQuote']);
-    const avgPrice = num(inner['avgPrice'] ?? inner['price']);
+    const avgPrice = num(inner['avgPrice']);
     const filledNotionalUsd = cummulativeQuote > 0
       ? cummulativeQuote
       : executedQty > 0 && avgPrice > 0
         ? executedQty * avgPrice
-        : action.notionalUsd;
+        : 0;
 
     return {
       ok: true,
@@ -250,6 +274,7 @@ export class BinanceAdapter implements OrderExecutor {
       symbol: String(inner['symbol'] ?? action.symbol),
       status: String(inner['status'] ?? 'UNKNOWN'),
       filledNotionalUsd: Math.round(filledNotionalUsd * 1e8) / 1e8,
+      filledQuantity: Math.round(executedQty * 1e8) / 1e8,
       realizedPnlUsd: num(inner['realizedPnl'] ?? 0),
       raw: r.data,
     };

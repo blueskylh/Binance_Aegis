@@ -38,8 +38,30 @@ jobs:
       - name: Security regression suite must pass on its own
         run: node --test dist/test/security.test.js
 
-      - name: Execution gateway suite must pass on its own
-        run: node --test dist/test/gateway.test.js
+      - name: Execution gateway suites must pass on their own
+        run: |
+          node --test dist/test/gateway.test.js
+          node --test dist/test/gateway-hardening.test.js
+          node --test dist/test/self-audit.test.js
+
+      - name: Unsupported venues must be refused, never rerouted
+        run: |
+          export AEGIS_HOME="$(mktemp -d)"
+          P=policies/balanced.yaml
+          node dist/src/cli/main.js -p $P account --equity 10000 --mark BTCUSDT=100000 > /dev/null
+          set +e
+          node dist/src/cli/main.js -p $P execute --live --category trade --venue margin \
+            --symbol BTCUSDT --side BUY --quoteQuantity 100 > /tmp/out.txt 2>&1
+          set -e
+          grep -q "BLOCKED" /tmp/out.txt
+
+      - name: Version is consistent across package, CLI and skill
+        run: |
+          PKG=$(node -p "require('./package.json').version")
+          CLI=$(node dist/src/cli/main.js --version)
+          echo "package=$PKG cli=$CLI"
+          test "$PKG" = "$CLI"
+          grep -q "version: $PKG" skill/*/SKILL.md
 
       - name: Exit-code contract — review MUST be non-zero
         run: |
@@ -54,11 +76,11 @@ jobs:
           echo "review exit code: $CODE"
           test "$CODE" -eq 3
 
-      - name: All 21 rules are registered
+      - name: All 23 rules are registered
         run: |
           COUNT=$(node dist/src/cli/main.js --json rules | node -p "JSON.parse(require('fs').readFileSync(0)).length")
           echo "rules: $COUNT"
-          test "$COUNT" -eq 21
+          test "$COUNT" -eq 23
 
       - name: Every shipped policy must validate
         run: |

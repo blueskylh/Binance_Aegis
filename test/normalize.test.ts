@@ -21,6 +21,7 @@ function ctx(over: Partial<RiskContext> = {}): RiskContext {
     },
     recentActionIds: [],
     killSwitch: false,
+    snapshotAgeMs: 0,
     ...over,
   };
 }

@@ -126,7 +126,7 @@ describe('MCP — status, execution, ledger, stop', () => {
     assert.equal(out.killSwitch, false);
     assert.equal(out.equityUsd, 10_000);
     assert.ok(out.budgets);
-    assert.ok(out.rulesActive >= 21);
+    assert.ok(out.rulesActive >= 23);
   });
 
   test('recording an execution moves the daily counters', async () => {
@@ -169,7 +169,7 @@ describe('MCP — status, execution, ledger, stop', () => {
     const out = await toolCall('aegis_explain_policy', {});
     assert.ok(out.limits);
     assert.ok(Array.isArray(out.rules));
-    assert.ok(out.rules.length >= 21);
+    assert.ok(out.rules.length >= 23);
   });
 });
 

@@ -28,6 +28,8 @@ import {
   priceDeviationRule,
   requireStopLossRule,
   reviewThresholdRule,
+  snapshotFreshnessRule,
+  stopPriceSanityRule,
   unverifiedReductionRule,
 } from './integrity.js';
 import type { Rule } from '../../types.js';
@@ -45,6 +47,7 @@ export const RULES: readonly RegisteredRule[] = Object.freeze([
   { id: 'allowlist', about: 'Positive category/venue/symbol permissions', fn: allowlistRule },
   { id: 'default-posture', about: 'Fallback verdict when nothing matched', fn: defaultPostureRule },
   { id: 'unverified-reduce-only', about: 'Refuses unprovable risk-reduction claims', fn: unverifiedReductionRule },
+  { id: 'stale-position-data', about: 'Refuses exit exemptions on a stale snapshot', fn: snapshotFreshnessRule },
   { id: 'duplicate-action', about: 'Replay and double-submit protection', fn: duplicateActionRule },
   { id: 'min-equity', about: 'Account equity floor', fn: minEquityRule },
   { id: 'max-notional-per-order', about: 'Per-order USD notional cap', fn: maxNotionalPerOrderRule },
@@ -59,6 +62,7 @@ export const RULES: readonly RegisteredRule[] = Object.freeze([
   { id: 'rate-limit-hour', about: 'Orders-per-hour brake', fn: rateLimitHourRule },
   { id: 'trading-hours', about: 'Permitted UTC trading window', fn: tradingHoursRule },
   { id: 'price-deviation', about: 'Fat-finger / hallucinated-price guard', fn: priceDeviationRule },
-  { id: 'require-stop-loss', about: 'Mandatory protective stop on leveraged entries', fn: requireStopLossRule },
+  { id: 'require-stop-loss', about: 'Mandatory protective stop price on leveraged entries', fn: requireStopLossRule },
+  { id: 'invalid-stop-price', about: 'Rejects stops on the wrong side or too far away', fn: stopPriceSanityRule },
   { id: 'review-threshold', about: 'Human-confirmation escalation threshold', fn: reviewThresholdRule },
 ]);

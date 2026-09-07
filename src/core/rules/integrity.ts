@@ -36,20 +36,106 @@ export function priceDeviationRule(action: NormalizedAction, policy: Policy, ctx
 }
 
 /** Never open leveraged risk without a declared exit. */
+/**
+ * Protective-stop requirement.
+ *
+ * v2.0.0 accepted `hasStopLoss: true` on the agent's word, contradicting this
+ * project's own stated philosophy that a claim is evidence, not proof. A
+ * prompt-injected agent could assert the flag and open unprotected leverage.
+ *
+ * A price, unlike a boolean, can be checked — and in gateway mode it is actually
+ * placed as a `STOP_MARKET reduceOnly` order once the entry fills.
+ */
 export function requireStopLossRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   if (!policy.guards.requireStopLoss) return [];
   if (isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   if (!LEVERAGED_VENUES.has(action.venue)) return [];
-  if (action.hasStopLoss) return [];
+  if (action.stopPrice !== null) return [];
+
+  const claimedOnly = action.raw?.hasStopLoss === true;
   return [{
     ruleId: 'require-stop-loss',
     verdict: 'deny',
     severity: 'critical',
+    message: claimedOnly
+      ? `Policy requires a protective stop on ${action.venue} entries, and "hasStopLoss: true" is only a claim. ` +
+        'Supply a concrete `stopPrice` — Aegis validates it and places it for you.'
+      : `Policy requires a protective stop on ${action.venue} entries. Resubmit with a \`stopPrice\`.`,
+    observed: claimedOnly ? 'unverifiable claim' : 'no stop supplied',
+    limit: 'stopPrice required',
+  }];
+}
+
+/**
+ * Sanity-check the stop price itself.
+ *
+ * A stop on the wrong side of the entry is not protection — it is an instant
+ * market order. A stop 90% away is not protection either.
+ */
+export function stopPriceSanityRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
+  if (action.stopPrice === null || action.side === null) return [];
+  if (isRiskReducing(action, ctx)) return [];
+
+  const reference = action.price ?? (action.symbol !== null ? ctx.marks[action.symbol] : undefined);
+  if (typeof reference !== 'number' || !Number.isFinite(reference) || reference <= 0) return [];
+
+  const deny = (message: string, observed: number | string): Finding[] => ([{
+    ruleId: 'invalid-stop-price',
+    verdict: 'deny',
+    severity: 'critical',
+    message,
+    observed,
+    limit: reference,
+  }]);
+
+  if (action.side === 'BUY' && action.stopPrice >= reference) {
+    return deny(
+      `Stop price ${action.stopPrice} is at or above the ${reference} entry on a long. ` +
+      'That is not protection — it would trigger immediately.',
+      action.stopPrice,
+    );
+  }
+  if (action.side === 'SELL' && action.stopPrice <= reference) {
+    return deny(
+      `Stop price ${action.stopPrice} is at or below the ${reference} entry on a short. ` +
+      'That is not protection — it would trigger immediately.',
+      action.stopPrice,
+    );
+  }
+
+  const distancePct = (Math.abs(reference - action.stopPrice) / reference) * 100;
+  const maxDistance = policy.guards.maxStopDistancePct;
+  if (maxDistance !== null && distancePct > maxDistance) {
+    return deny(
+      `Stop price ${action.stopPrice} sits ${round2(distancePct)}% from entry, beyond the ${maxDistance}% cap. ` +
+      'A stop that far away is not a risk control.',
+      round2(distancePct),
+    );
+  }
+  return [];
+}
+
+/**
+ * Reduce-only exemptions rest on the position snapshot. When that snapshot is
+ * stale, the evidence is unreliable and the exemption is refused rather than
+ * granted on a guess.
+ */
+export function snapshotFreshnessRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
+  const maxAgeSec = policy.limits.maxPositionSnapshotAgeSec;
+  if (maxAgeSec === null) return [];
+  if (!action.reduceOnly && !action.closePosition) return [];
+  const ageSec = ctx.snapshotAgeMs / 1000;
+  if (ageSec <= maxAgeSec) return [];
+  return [{
+    ruleId: 'stale-position-data',
+    verdict: 'deny',
+    severity: 'critical',
     message:
-      `Policy requires a protective stop on ${action.venue} entries. ` +
-      'Attach one and resubmit with `hasStopLoss: true`.',
-    observed: 'no stop attached',
-    limit: 'stop required',
+      `This order claims to reduce risk, but the position snapshot is ${Math.round(ageSec)}s old ` +
+      `(limit ${maxAgeSec}s). Aegis will not grant an exemption on stale evidence — run \`aegis sync\` ` +
+      'or start the guardian, then resubmit.',
+    observed: Math.round(ageSec),
+    limit: maxAgeSec,
   }];
 }
 

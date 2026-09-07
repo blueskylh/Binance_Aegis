@@ -23,6 +23,7 @@ function ctx(over: Partial<RiskContext> = {}): RiskContext {
     },
     recentActionIds: [],
     killSwitch: false,
+    snapshotAgeMs: 0,
     ...over,
   };
 }
@@ -474,9 +475,19 @@ describe('rule: order integrity guards', () => {
     assert.ok(findingIds(d).includes('require-stop-loss'));
   });
 
-  test('allows a futures entry that declares a stop', () => {
+  test('a bare hasStopLoss claim is NOT enough (GW-06)', () => {
     const d = evaluate(
       { ...BUY_100, venue: 'futures-usds', hasStopLoss: true },
+      policy(['guards:', '  requireStopLoss: true']),
+      ctx(),
+    );
+    assert.equal(d.verdict, 'deny', 'a boolean the agent sets itself is not evidence');
+    assert.ok(findingIds(d).includes('require-stop-loss'));
+  });
+
+  test('allows a futures entry carrying a validated stopPrice', () => {
+    const d = evaluate(
+      { ...BUY_100, venue: 'futures-usds', side: 'BUY', stopPrice: 95_000 },
       policy(['guards:', '  requireStopLoss: true']),
       ctx(),
     );
