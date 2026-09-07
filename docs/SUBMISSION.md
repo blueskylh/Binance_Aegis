@@ -11,9 +11,10 @@
 ```bash
 npm install && npm run build
 
-node dist/src/demo/scenario.js     # 12 scenarios, ~4s, no keys, no network
-node --test "dist/test/**/*.test.js"   # 211 tests
-node dist/src/cli/main.js rules    # the 20 enforced rules
+node dist/src/demo/scenario.js     # three acts, ~5s, no keys, no network
+node --test "dist/test/**/*.test.js"   # 245 tests
+node dist/src/cli/main.js rules    # the 21 enforced rules
+node dist/src/cli/main.js doctor   # real binance-cli integration evidence
 node dist/src/cli/main.js ledger verify
 ```
 
@@ -39,14 +40,15 @@ including the ones competing in this hackathon.
 
 | | |
 |---|---|
-| **Policy engine** | 20 deterministic rules; pure `(action, policy, context) → decision`; no LLM in the enforcement path |
+| **Policy engine** | 21 deterministic rules; pure `(action, policy, context) → decision`; no LLM in the enforcement path |
 | **Policy language** | Declarative YAML, deny-by-default, strict schema — unknown keys are hard errors |
 | **Audit ledger** | SHA-256 hash-chained append-only JSONL; detects mutation, deletion, reordering and forged appends by sequence number |
 | **MCP server** | 8 tools over stdio; runs beside the Binance MCP server |
 | **CLI** | 12 commands; exit code *is* the integration (`check && binance-cli ...`) |
 | **Skills Hub skill** | `skill/agent-os-risk-firewall/SKILL.md`, in Binance's contribution format |
 | **Guardian daemon** | Portfolio-level circuit breakers on a timer via `binance-cli`, with stale-data protection |
-| **Tests** | 211 passing — unit + real-process E2E over stdio |
+| **Execution gateway** | Aegis as the ONLY write path; approval tickets bound to an action digest |
+| **Tests** | 245 passing — unit + gateway + 17 security regressions + real-process E2E |
 | **Dependencies** | **Zero** at runtime, including the YAML parser |
 
 ---

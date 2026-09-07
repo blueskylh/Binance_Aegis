@@ -13,7 +13,7 @@ const round2 = (n: number): number => Math.round(n * 100) / 100;
 
 export function dailyLossLimitRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxDailyLossUsd;
-  if (limit === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (limit === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   const loss = -ctx.counters.dailyRealizedPnlUsd; // positive when we are down
   if (loss < limit) return [];
   return [{
@@ -30,7 +30,7 @@ export function dailyLossLimitRule(action: NormalizedAction, policy: Policy, ctx
 
 export function maxDrawdownRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxDrawdownPct;
-  if (limit === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (limit === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   const peak = ctx.counters.peakEquityUsd;
   if (peak <= 0) return [];
   const drawdownPct = ((peak - ctx.equityUsd) / peak) * 100;
@@ -49,7 +49,7 @@ export function maxDrawdownRule(action: NormalizedAction, policy: Policy, ctx: R
 
 export function lossCooldownRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const seconds = policy.guards.cooldownSecondsAfterLoss;
-  if (seconds === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (seconds === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   const lastLossAt = ctx.counters.lastLossAt;
   if (lastLossAt === null) return [];
   const elapsed = (ctx.now - lastLossAt) / 1000;

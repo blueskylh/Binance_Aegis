@@ -1,27 +1,50 @@
 /**
  * Tamper-evident audit ledger.
  *
- * Binance Agent OS can tell you *what* your agent did. It cannot tell you what
- * your agent was *allowed* to do, by which policy, on what evidence. That gap is
- * what this ledger closes.
+ * Every decision and execution is appended as one JSON line, chained to its
+ * predecessor:
  *
- * Every decision and execution is appended as one JSON line, hash-chained to its
- * predecessor: hash(n) = SHA-256(prevHash + canonicalJSON(seq, ts, type, payload)).
- * Editing, deleting or reordering any entry breaks every hash after it, and
- * `verify()` reports the exact sequence number where the chain first diverges.
+ *   hash(n) = H( prevHash ‖ canonicalJSON(seq, ts, type, payload) )
  *
- * Append-only JSONL is a deliberate choice over a database: it is greppable,
- * diffable, trivially shippable to S3 or a SIEM, and survives a crash with at
- * worst one partial trailing line.
+ * where H is SHA-256, or HMAC-SHA256 when `AEGIS_LEDGER_KEY` is set.
+ *
+ * ## Threat model — stated honestly
+ *
+ * Unkeyed mode is **tamper-evident, not tamper-proof**. It detects edits,
+ * deletions, reordering and naïve appends. It does NOT stop an attacker who has
+ * write access to the file and knows the algorithm: they can recompute the whole
+ * chain from the point of the edit onward. Claiming otherwise would be the kind
+ * of overstatement that discredits a security tool.
+ *
+ * Set `AEGIS_LEDGER_KEY` to close that gap. The chain then uses HMAC-SHA256, and
+ * forging it requires the key — which lives with the operator, not in the
+ * agent's environment. That is the difference between "someone edited this" and
+ * "nobody but you could have written this".
+ *
+ * For the strongest form, periodically publish `aegis ledger head` somewhere you
+ * do not control (a git commit, a chat message, an object store with WORM). An
+ * external anchor makes even a full rewrite detectable.
+ *
+ * ## Why JSONL over a database
+ *
+ * Greppable, diffable, shippable to S3 or a SIEM with `cat`, and a crash costs
+ * at worst one partial trailing line — which the reader stops cleanly at rather
+ * than discarding an otherwise valid history.
  */
 
 import { appendFileSync, closeSync, existsSync, mkdirSync, openSync, readFileSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { dirname } from 'node:path';
 import type { LedgerEntry, LedgerEventType } from '../types.js';
 
 /** Chain anchor. Fixed constant so independent verifiers agree. */
 export const GENESIS_HASH: string = createHash('sha256').update('aegis-ledger-genesis-v1').digest('hex');
+
+/** Operator key for HMAC mode. Read once at import so the agent cannot swap it mid-run. */
+function ledgerKey(): string | null {
+  const k = process.env['AEGIS_LEDGER_KEY'];
+  return k && k.length > 0 ? k : null;
+}
 
 /**
  * Deterministic JSON with sorted keys.
@@ -45,10 +68,22 @@ export function canonicalize(value: unknown): string {
 }
 
 function computeHash(prevHash: string, seq: number, ts: number, type: string, payload: unknown): string {
-  return createHash('sha256')
-    .update(prevHash)
-    .update(canonicalize({ seq, ts, type, payload }))
-    .digest('hex');
+  const material = canonicalize({ seq, ts, type, payload });
+  const key = ledgerKey();
+  if (key !== null) {
+    return createHmac('sha256', key).update(prevHash).update(material).digest('hex');
+  }
+  return createHash('sha256').update(prevHash).update(material).digest('hex');
+}
+
+/** Constant-time hex comparison, so verification cannot be probed by timing. */
+function hashesEqual(a: string, b: string): boolean {
+  if (a.length !== b.length) return false;
+  try {
+    return timingSafeEqual(Buffer.from(a, 'hex'), Buffer.from(b, 'hex'));
+  } catch {
+    return false;
+  }
 }
 
 export interface VerifyResult {
@@ -58,6 +93,10 @@ export interface VerifyResult {
   brokenAt: number | null;
   reason: string | null;
   head: string;
+  /** True when an operator key is in use, so the chain is unforgeable without it. */
+  keyed: boolean;
+  /** Plain-language statement of what this verification does and does not prove. */
+  assurance: string;
 }
 
 export class Ledger {
@@ -122,11 +161,19 @@ export class Ledger {
 
   /** Recompute the whole chain and report the first divergence. */
   verify(): VerifyResult {
+    const keyed = ledgerKey() !== null;
+    const assurance = keyed
+      ? 'HMAC mode: forging this chain requires AEGIS_LEDGER_KEY, which the agent does not hold.'
+      : 'Unkeyed mode: detects edits, deletions and reordering. An attacker with write access ' +
+        'and knowledge of the algorithm could recompute the chain — set AEGIS_LEDGER_KEY to prevent that.';
+    const fail = (entries: number, brokenAt: number | null, reason: string, head: string): VerifyResult =>
+      ({ ok: false, entries, brokenAt, reason, head, keyed, assurance });
+
     let raw: string;
     try {
       raw = readFileSync(this.path, 'utf8');
     } catch (err) {
-      return { ok: false, entries: 0, brokenAt: null, reason: `cannot read ledger: ${(err as Error).message}`, head: GENESIS_HASH };
+      return fail(0, null, `cannot read ledger: ${(err as Error).message}`, GENESIS_HASH);
     }
 
     const lines = raw.split('\n').filter((l) => l.trim() !== '');
@@ -139,40 +186,24 @@ export class Ledger {
       try {
         entry = JSON.parse(lines[i] as string) as LedgerEntry;
       } catch (err) {
-        return {
-          ok: false, entries: count, brokenAt: lineNo,
-          reason: `line ${lineNo} is not valid JSON (parse error: ${(err as Error).message})`,
-          head: prevHash,
-        };
+        return fail(count, lineNo, `line ${lineNo} is not valid JSON (parse error: ${(err as Error).message})`, prevHash);
       }
 
       if (entry.seq !== lineNo) {
-        return {
-          ok: false, entries: count, brokenAt: lineNo,
-          reason: `sequence gap: line ${lineNo} declares seq ${entry.seq} — an entry was deleted or reordered`,
-          head: prevHash,
-        };
+        return fail(count, lineNo, `sequence gap: line ${lineNo} declares seq ${entry.seq} — an entry was deleted or reordered`, prevHash);
       }
       if (entry.prevHash !== prevHash) {
-        return {
-          ok: false, entries: count, brokenAt: entry.seq,
-          reason: `broken link at seq ${entry.seq}: prevHash does not match the previous entry's hash`,
-          head: prevHash,
-        };
+        return fail(count, entry.seq, `broken link at seq ${entry.seq}: prevHash does not match the previous entry's hash`, prevHash);
       }
       const expected = computeHash(entry.prevHash, entry.seq, entry.ts, entry.type, entry.payload);
-      if (expected !== entry.hash) {
-        return {
-          ok: false, entries: count, brokenAt: entry.seq,
-          reason: `hash mismatch at seq ${entry.seq}: the payload was modified after it was written`,
-          head: prevHash,
-        };
+      if (!hashesEqual(expected, entry.hash)) {
+        return fail(count, entry.seq, `hash mismatch at seq ${entry.seq}: the payload was modified after it was written`, prevHash);
       }
       prevHash = entry.hash;
       count += 1;
     }
 
-    return { ok: true, entries: count, brokenAt: null, reason: null, head: prevHash };
+    return { ok: true, entries: count, brokenAt: null, reason: null, head: prevHash, keyed, assurance };
   }
 
   /** The last `n` entries, oldest first. */

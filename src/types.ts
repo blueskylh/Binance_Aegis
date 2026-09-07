@@ -64,6 +64,8 @@ export interface ProposedAction {
   leverage?: number;
   /** True when the order can only reduce an existing position. */
   reduceOnly?: boolean;
+  /** True when the order closes the whole position (Binance `closePosition`). */
+  closePosition?: boolean;
   /** True when the agent attached a protective stop to this entry. */
   hasStopLoss?: boolean;
   /** Destination wallet / address label for transfers. */
@@ -86,6 +88,7 @@ export interface NormalizedAction {
   price: number | null;
   leverage: number | null;
   reduceOnly: boolean;
+  closePosition: boolean;
   hasStopLoss: boolean;
   destination: string | null;
   /** USD notional the engine sizes limits against. 0 for non-value actions. */

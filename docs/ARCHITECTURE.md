@@ -3,7 +3,8 @@
 ## The one-sentence version
 
 `evaluate(action, policy, context) → decision` is a pure function; everything else in this
-repository exists to feed it good inputs and to make its outputs impossible to forge.
+repository exists to feed it good inputs, to make its outputs hard to forge, and to ensure
+nothing reaches Binance without passing through it.
 
 ---
 
@@ -13,9 +14,11 @@ repository exists to feed it good inputs and to make its outputs impossible to f
 ┌──────────────────────────────────────────────────────────────────────┐
 │  Integrations        CLI  ·  MCP server  ·  Guardian daemon          │
 ├──────────────────────────────────────────────────────────────────────┤
+│  Gateway             the enforced write path + approval tickets      │
+├──────────────────────────────────────────────────────────────────────┤
 │  Facade              Aegis  (orchestration, one place)               │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Engine (pure)       normalize → 20 rules → aggregate → mode         │
+│  Engine (pure)       normalize → 21 rules → aggregate → mode         │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Evidence            Ledger (hash chain)  ·  RiskStore (counters)    │
 ├──────────────────────────────────────────────────────────────────────┤

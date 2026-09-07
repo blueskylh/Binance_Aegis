@@ -12,17 +12,17 @@ import type { Finding, NormalizedAction, Policy, RiskContext } from '../../types
 /**
  * Rate limits govern *new* order flow.
  *
- * Reads, cancels, reduce-only closes and protective stops are all exempt: a
- * throttle that stops you closing a position during a fast market is not a
- * safety control, it is the accident. Same invariant the loss breakers hold.
+ * Reads, cancels and verified exits are exempt: a throttle that stops you
+ * closing a position during a fast market is not a safety control, it is the
+ * accident. Same invariant the loss breakers hold.
  */
-function isRateLimited(action: NormalizedAction): boolean {
-  return !isRiskReducing(action);
+function isRateLimited(action: NormalizedAction, ctx: RiskContext): boolean {
+  return !isRiskReducing(action, ctx);
 }
 
 export function rateLimitMinuteRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxOrdersPerMinute;
-  if (limit === null || !isRateLimited(action)) return [];
+  if (limit === null || !isRateLimited(action, ctx)) return [];
   if (ctx.counters.ordersLastMinute < limit) return [];
   return [{
     ruleId: 'rate-limit-minute',
@@ -38,7 +38,7 @@ export function rateLimitMinuteRule(action: NormalizedAction, policy: Policy, ct
 
 export function rateLimitHourRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxOrdersPerHour;
-  if (limit === null || !isRateLimited(action)) return [];
+  if (limit === null || !isRateLimited(action, ctx)) return [];
   if (ctx.counters.ordersLastHour < limit) return [];
   return [{
     ruleId: 'rate-limit-hour',
@@ -58,7 +58,7 @@ function toMinutes(hhmm: string): number {
 
 export function tradingHoursRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const window = policy.guards.tradingHoursUtc;
-  if (window === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (window === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
 
   const d = new Date(ctx.now);
   const nowMin = d.getUTCHours() * 60 + d.getUTCMinutes();

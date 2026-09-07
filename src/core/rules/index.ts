@@ -28,6 +28,7 @@ import {
   priceDeviationRule,
   requireStopLossRule,
   reviewThresholdRule,
+  unverifiedReductionRule,
 } from './integrity.js';
 import type { Rule } from '../../types.js';
 
@@ -43,6 +44,7 @@ export const RULES: readonly RegisteredRule[] = Object.freeze([
   { id: 'denylist', about: 'Explicit category/venue/symbol denials', fn: denylistRule },
   { id: 'allowlist', about: 'Positive category/venue/symbol permissions', fn: allowlistRule },
   { id: 'default-posture', about: 'Fallback verdict when nothing matched', fn: defaultPostureRule },
+  { id: 'unverified-reduce-only', about: 'Refuses unprovable risk-reduction claims', fn: unverifiedReductionRule },
   { id: 'duplicate-action', about: 'Replay and double-submit protection', fn: duplicateActionRule },
   { id: 'min-equity', about: 'Account equity floor', fn: minEquityRule },
   { id: 'max-notional-per-order', about: 'Per-order USD notional cap', fn: maxNotionalPerOrderRule },

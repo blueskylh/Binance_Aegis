@@ -2,19 +2,24 @@
 
 # 🛡️ Aegis
 
-### The risk firewall for Binance Agent OS
+### The execution control plane for Binance Agent OS
 
 **Binance Agent OS gives your AI agent real market power.**
-**Aegis decides what it's allowed to do with it.**
+**Aegis is the door it cannot walk around.**
 
-*20 deterministic rules · zero LLMs in the enforcement path · tamper-evident audit ledger · zero runtime dependencies*
+**The agent proposes. Aegis decides. Binance executes.**
 
-[![tests](https://img.shields.io/badge/tests-211%20passing-brightgreen)]()
+*21 deterministic rules · zero LLMs in the enforcement path · hash-chained audit ledger · zero runtime dependencies*
+
+[![tests](https://img.shields.io/badge/tests-245%20passing-brightgreen)]()
+[![security](https://img.shields.io/badge/security%20regressions-17-critical)]()
 [![deps](https://img.shields.io/badge/runtime%20dependencies-0-blue)]()
 [![node](https://img.shields.io/badge/node-%E2%89%A522-green)]()
 [![license](https://img.shields.io/badge/license-MIT-black)]()
 
 *Binance Agent OS Mini Hackathon — Track A*
+
+[中文](./README.md) · [Security model](./docs/SECURITY.md) · [Architecture](./docs/ARCHITECTURE.md) · [Integration](./docs/INTEGRATION.md)
 
 </div>
 
@@ -51,6 +56,30 @@ be argued with, forgotten mid-context, injected into, or silently truncated at 4
 
 The agent proposes. Aegis disposes. Binance executes. **No LLM anywhere in the enforcement path** —
 the same inputs always produce the same verdict, and you can prove it after the fact.
+
+---
+
+## Advisory vs gateway — the distinction that matters
+
+This is the most important design decision in the project, and the one v1.0.0 got wrong.
+
+| | ❌ Advisory mode | ✅ Gateway mode |
+|---|---|---|
+| Topology | `agent → Aegis` **and** `agent → Binance` | `agent → Aegis → Binance` |
+| Agent holds a Binance write tool | Yes | **No** |
+| Enforcement | A system prompt asking politely | A property of the deployment |
+| Prompt injection can bypass | **Yes** | No — there is no second path |
+
+In gateway mode Aegis holds the credentials and exposes exactly one execution tool. The guarantee
+stops being a claim about agent behaviour and becomes structural: the agent cannot call Binance
+directly because it was never handed a way to.
+
+```bash
+aegis mcp --gateway --policy ./policies/conservative.yaml
+```
+
+> **Deployment requirement:** in gateway mode, do not also register the Binance MCP server, and keep
+> API keys out of the agent's environment. Aegis cannot revoke a capability you hand out separately.
 
 ---
 
@@ -171,7 +200,7 @@ Unknown keys are a hard error, never a warning. A typo like `maxLevrage:` that s
 
 ---
 
-## The 20 rules
+## The 21 rules
 
 | Category | Rules |
 |---|---|
@@ -179,17 +208,21 @@ Unknown keys are a hard error, never a warning. A typo like `maxLevrage:` that s
 | **Size** | `max-notional-per-order` · `max-daily-notional` · `max-open-exposure` · `max-positions-open` · `max-leverage` · `min-equity` |
 | **Loss** | `daily-loss-limit` · `max-drawdown` · `loss-cooldown` |
 | **Tempo** | `rate-limit-minute` · `rate-limit-hour` · `trading-hours` |
-| **Integrity** | `price-deviation` (fat-finger) · `require-stop-loss` · `duplicate-action` (replay) |
+| **Integrity** | `price-deviation` (fat-finger) · `require-stop-loss` · `duplicate-action` (replay) · **`unverified-reduce-only`** |
 | **Human** | `review-threshold` |
 
 Three invariants hold across all of them:
 
-1. **The exit is never blocked.** Every breaker exempts cancels, reduce-only closes and protective
-   stops. A risk system that traps you in a position *is* the risk.
-2. **Fail closed.** A malformed action, an unparseable policy or a rule that throws all produce
+1. **The exit is never blocked.** Every breaker — kill-switch, daily loss, drawdown, cooldown, rate
+   limits, size caps, review threshold — stands aside for a *verified* risk-reducing action. A risk
+   system that traps you in a position *is* the risk.
+2. **A claim is evidence, not proof.** `reduceOnly` is validated against real positions — opposite
+   side, sufficient size — and the exemption is refused when it cannot be verified.
+
+3. **Fail closed.** A malformed action, an unparseable policy or a rule that throws all produce
    `deny` — never an accidental `allow`.
-3. **Prospective, not retrospective.** Limits ask *"what would exposure be if this executed"*, not
-   *"what is it now"*. That distinction is how accounts blow through their own caps.
+4. **Prospective, not retrospective.** Limits ask *"what would exposure be if this executed"*, not
+   *"what is it now"*.
 
 ---
 
@@ -239,11 +272,11 @@ worse than none.
 ## Engineering
 
 ```
-211 tests · 0 failures · 0 runtime dependencies
+245 tests · 0 failures · 17 security regressions · 0 runtime dependencies
 ```
 
 ```bash
-npm test        # 211 tests: unit + real-process E2E over stdio
+npm test        # unit + gateway + security regressions + real-process E2E
 npm run verify  # tests + the full demo scenario
 ```
 
@@ -253,9 +286,11 @@ npm run verify  # tests + the full demo scenario
   drives them over stdio, exactly as Claude Code would.
 - **Zero dependencies**, including the YAML parser. A security control plane should not drag a
   supply chain behind it. TypeScript `strict` + `noUncheckedIndexedAccess`.
-- **Built test-first.** Two genuine bugs surfaced during development and were fixed at root cause
-  with a regression test each — most notably a rate limiter that would have blocked a reduce-only
-  exit, violating invariant #1 above.
+- **Built test-first**, then independently audited. An adversarial review of v1.0.0 reproduced
+  **seven defects**; all are fixed in v2.0.0 with a named regression test each, and all are listed
+  openly in [`docs/SECURITY.md`](./docs/SECURITY.md) rather than quietly patched. Two were critical:
+  a bare `STOP_MARKET` bypassed the loss breakers, and a fabricated `reduceOnly` flag unlocked every
+  size limit.
 
 ```
 src/
@@ -266,7 +301,8 @@ src/
 ├── policy/                # strict schema + zero-dep YAML subset parser
 ├── ledger/                # hash chain + verification
 ├── state/                 # rolling counters, rebuilt from the ledger
-├── adapters/binance.ts    # read-only binance-cli adapter
+├── gateway/               # the enforced write path + approval tickets
+├── adapters/binance.ts    # binance-cli adapter (verified command names)
 ├── guardian/              # portfolio circuit breakers
 ├── mcp/                   # MCP server (handler + stdio transport)
 └── cli/                   # the aegis command
@@ -278,7 +314,7 @@ src/
 
 | | |
 |---|---|
-| Credentials held | **none** — Aegis authorizes, `binance-cli` executes |
+| Credentials held | advisory: none · gateway: the `binance-cli` profile, deliberately |
 | Orders placed | **none** — the only write is `cancel-all-open-orders`, which only reduces risk |
 | Withdrawal path | **none**, matching the Binance Agentic sub-account model |
 | Supply chain | zero runtime dependencies |
@@ -290,8 +326,12 @@ src/
 ## Command reference
 
 ```
-aegis check <action>        Evaluate a proposed action        (exit 1 = denied)
-aegis record --actionId ..  Record a fill; advances counters
+aegis execute <action>      GATEWAY — evaluate AND execute    (exit 1 deny / 3 review)
+aegis approve <ticket>      Approve a parked action
+aegis pending               List actions awaiting approval
+aegis doctor                Probe the live binance-cli integration
+aegis check <action>        Advisory-only evaluation (does NOT execute)
+aegis record --actionId ..  Record a fill (advisory mode only)
 aegis status                Posture, drawdown, budget bars
 aegis rules                 The 20 enforced rules
 aegis policy show|validate  Inspect / lint a policy
@@ -299,9 +339,9 @@ aegis ledger verify|tail    Audit the chain
 aegis halt <reason>         Kill-switch on
 aegis resume [--reset-peak] Kill-switch off
 aegis init [path]           Starter policy + MCP wiring
-aegis mcp                   Run the MCP server on stdio
+aegis mcp [--gateway]       Run the MCP server on stdio
 aegis guardian [...]        Run the circuit-breaker daemon
-aegis demo                  The 12-scenario walkthrough
+aegis demo                  The three-act walkthrough
 ```
 
 ---

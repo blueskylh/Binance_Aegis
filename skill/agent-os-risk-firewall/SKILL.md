@@ -106,8 +106,17 @@ aegis check --json '{"category":"trade","venue":"futures-usds","symbol":"ETHUSDT
 | `hasStopLoss` | | `true` when a protective stop is attached |
 | `id` | | your idempotency key; reusing one is rejected as a replay |
 
-**Exit codes:** `0` = allow or review · `1` = deny · `2` = bad input.
-This makes `aegis check ... && binance-cli spot new-order ...` a safe one-liner.
+**Exit codes:** `0` = allow · `1` = deny · `2` = bad input · **`3` = review (human must confirm)**.
+
+`review` is deliberately non-zero, so `aegis check ... && binance-cli ...` STOPS on it. Never treat
+a review as an allow.
+
+Better still, use gateway mode and let Aegis place the order itself:
+
+```bash
+aegis execute --json --category trade --venue spot --symbol BTCUSDT \
+  --side BUY --orderType MARKET --quoteQuantity 250 --live
+```
 
 **Response**
 
@@ -140,7 +149,7 @@ Counters only move here. **If you skip this, every budget and loss limit goes bl
 ```bash
 aegis status --json          # equity, drawdown, exposure, budget consumption, kill-switch
 aegis policy show --json     # active limits, allowlists, guards
-aegis rules --json           # the 20 rules being enforced
+aegis rules --json           # the 21 rules being enforced
 ```
 
 ### 4. Safety controls
@@ -191,6 +200,7 @@ aegis ledger tail 50         # recent decisions
 | `price-deviation` | Limit price far from mark | **Re-fetch the price — your context is stale** |
 | `require-stop-loss` | Leveraged entry with no stop | Attach a stop, resubmit with `hasStopLoss: true` |
 | `duplicate-action` | Replayed id | It already executed — verify before resending |
+| `unverified-reduce-only` | A close was claimed but no matching position is known | Refresh positions; or resubmit without `reduceOnly` to be judged as a new entry |
 | `symbol-allowlist` | Off-mandate asset | Not tradeable under this policy |
 | `kill-switch` | Operator halt | Only the human can lift it |
 | `review-threshold` | Above autonomy limit | Ask the human |

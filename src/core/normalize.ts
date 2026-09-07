@@ -194,6 +194,7 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
     price,
     leverage,
     reduceOnly: proposal.reduceOnly === true,
+    closePosition: proposal.closePosition === true,
     hasStopLoss: proposal.hasStopLoss === true,
     destination: typeof proposal.destination === 'string' ? proposal.destination : null,
     notionalUsd: Math.round(notionalUsd * 1e8) / 1e8,
@@ -202,10 +203,133 @@ export function normalizeAction(proposal: ProposedAction, ctx: RiskContext): Nor
   };
 }
 
-/** True when an action can only reduce exposure (cancels, reduce-only closes). */
-export function isRiskReducing(action: NormalizedAction): boolean {
-  if (action.category === 'read' || action.category === 'cancel') return true;
-  if (action.reduceOnly) return true;
-  if (action.orderType === 'STOP_MARKET' || action.orderType === 'TAKE_PROFIT_MARKET') return true;
-  return false;
+/**
+ * Risk direction classification.
+ *
+ * v1.0.0 asked a simpler question — `isRiskReducing(action)` — and got it wrong
+ * in two ways that an adversarial review reproduced:
+ *
+ *  1. `STOP_MARKET` / `TAKE_PROFIT_MARKET` were treated as risk-reducing purely
+ *     by order type. But a stop-ENTRY opens risk. That made the order type a
+ *     skeleton key: submitting a new position as `STOP_MARKET` bypassed the
+ *     daily-loss breaker, the cooldown and the stop-loss requirement.
+ *  2. A `reduceOnly: true` claim was trusted unconditionally, so an agent could
+ *     unlock every size limit just by asserting a flag.
+ *
+ * The fix is to treat the agent's claim as *evidence* and check it against the
+ * positions Aegis actually knows about. Binance enforces `reduceOnly`
+ * server-side too, but a risk firewall should not outsource its own invariants
+ * to the thing it is guarding.
+ */
+export interface RiskDirection {
+  /** True when the action can only shrink existing exposure. */
+  reducing: boolean;
+  /** True when the claim was checked against a real, opposing position. */
+  verified: boolean;
+  /** Notional of the matching position, when one is known. */
+  positionNotionalUsd: number | null;
+  /** Human-readable justification, surfaced in findings. */
+  reason: string;
+}
+
+/** Order types that only reduce risk when tied to an existing position. */
+const PROTECTIVE_TYPES = new Set<OrderType>(['STOP_MARKET', 'TAKE_PROFIT_MARKET']);
+
+/**
+ * Classify whether an action reduces or increases risk.
+ *
+ * Fails closed: anything it cannot positively confirm as a reduction is treated
+ * as risk-increasing, so the full limit set applies.
+ */
+export function classifyRisk(action: NormalizedAction, ctx: RiskContext): RiskDirection {
+  if (action.category === 'read') {
+    return { reducing: true, verified: true, positionNotionalUsd: null, reason: 'read-only action' };
+  }
+  if (action.category === 'cancel') {
+    return {
+      reducing: true,
+      verified: true,
+      positionNotionalUsd: null,
+      reason: 'cancelling an order can only remove exposure',
+    };
+  }
+
+  const claimsReduction = action.reduceOnly || action.closePosition;
+  if (!claimsReduction) {
+    const note = action.orderType && PROTECTIVE_TYPES.has(action.orderType)
+      ? `${action.orderType} without reduceOnly/closePosition opens a new position`
+      : 'action increases or establishes exposure';
+    return { reducing: false, verified: true, positionNotionalUsd: null, reason: note };
+  }
+
+  if (action.symbol === null) {
+    return {
+      reducing: false,
+      verified: false,
+      positionNotionalUsd: null,
+      reason: 'reduction claimed but no symbol was supplied, so it cannot be matched to a position',
+    };
+  }
+
+  const position = ctx.positions.find((p) => p.symbol === action.symbol && p.quantity !== 0);
+  if (!position) {
+    return {
+      reducing: false,
+      verified: false,
+      positionNotionalUsd: null,
+      reason: `reduction claimed on ${action.symbol} but Aegis knows of no open position there`,
+    };
+  }
+
+  // Reducing a long means selling; reducing a short means buying.
+  const positionIsLong = position.quantity > 0;
+  if (action.side !== null) {
+    const sideReduces = positionIsLong ? action.side === 'SELL' : action.side === 'BUY';
+    if (!sideReduces) {
+      return {
+        reducing: false,
+        verified: false,
+        positionNotionalUsd: Math.abs(position.notionalUsd),
+        reason: `${action.side} cannot reduce a ${positionIsLong ? 'long' : 'short'} ${action.symbol} position`,
+      };
+    }
+  }
+
+  const positionNotional = Math.abs(position.notionalUsd);
+  const round2 = (n: number): number => Math.round(n * 100) / 100;
+
+  // closePosition flattens whatever is there, so size cannot overshoot.
+  if (action.closePosition) {
+    return {
+      reducing: true,
+      verified: true,
+      positionNotionalUsd: positionNotional,
+      reason: `closes the open ${action.symbol} position of $${round2(positionNotional)}`,
+    };
+  }
+
+  // A reduceOnly order larger than the position is not purely a reduction.
+  // 1% tolerance absorbs mark drift between the snapshot and submission.
+  if (action.notionalUsd > positionNotional * 1.01) {
+    return {
+      reducing: false,
+      verified: false,
+      positionNotionalUsd: positionNotional,
+      reason:
+        `reduceOnly size $${round2(action.notionalUsd)} exceeds the known ` +
+        `${action.symbol} position of $${round2(positionNotional)}`,
+    };
+  }
+
+  return {
+    reducing: true,
+    verified: true,
+    positionNotionalUsd: positionNotional,
+    reason: `reduces the open ${action.symbol} position of $${round2(positionNotional)}`,
+  };
+}
+
+/** Convenience boolean over {@link classifyRisk}. */
+export function isRiskReducing(action: NormalizedAction, ctx: RiskContext): boolean {
+  return classifyRisk(action, ctx).reducing;
 }

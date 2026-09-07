@@ -9,17 +9,25 @@ import { isRiskReducing } from '../normalize.js';
 import type { Finding, NormalizedAction, Policy, RiskContext } from '../../types.js';
 
 /**
- * Operator kill-switch. Absolute, and deliberately asymmetric: it stops new risk
- * but never traps the agent inside a position, so cancels and reads still pass.
+ * Operator kill-switch.
+ *
+ * Absolute, and deliberately asymmetric: it stops new risk but never traps the
+ * agent inside a position. Reads, cancels and *verified* exits all still pass.
+ *
+ * v1.0.0 exempted only the `read` and `cancel` categories, which meant engaging
+ * the halt also blocked reduce-only closes — the exact opposite of what an
+ * emergency stop is for. (Regression: SEC-02.)
  */
 export function killSwitchRule(action: NormalizedAction, _policy: Policy, ctx: RiskContext): Finding[] {
   if (!ctx.killSwitch) return [];
-  if (action.category === 'read' || action.category === 'cancel') {
+  if (isRiskReducing(action, ctx)) {
     return [{
       ruleId: 'kill-switch',
       verdict: 'allow',
       severity: 'info',
-      message: 'Kill-switch is engaged, but read and cancel actions remain permitted so you can always flatten.',
+      message:
+        'Kill-switch is engaged, but this action reduces risk, so it is permitted. ' +
+        'You can always read, cancel and close.',
       observed: 'engaged',
       limit: null,
     }];
@@ -117,10 +125,11 @@ export function allowlistRule(action: NormalizedAction, policy: Policy): Finding
 }
 
 /** The fallback posture when no allowlist expressed an opinion. */
-export function defaultPostureRule(action: NormalizedAction, policy: Policy): Finding[] {
+export function defaultPostureRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   if (hasAllowConstraints(policy)) return [];
   if (policy.default === 'allow') return [];
-  if (isRiskReducing(action) && action.category === 'cancel') return [];
+  if (action.category === 'cancel') return [];
+  void ctx;
   return [{
     ruleId: 'default-posture',
     verdict: 'deny',

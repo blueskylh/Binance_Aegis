@@ -109,9 +109,9 @@ describe('e2e — CLI', () => {
     assert.match(r.stdout, /BUDGETS/);
   });
 
-  test('rules lists all 20 rules', async () => {
+  test('rules lists all 21 rules', async () => {
     const r = await cli(['--json', 'rules']);
-    assert.equal(JSON.parse(r.stdout).length, 20);
+    assert.equal(JSON.parse(r.stdout).length, 21);
   });
 
   test('policy validate accepts a good file and rejects a bad one', async () => {
@@ -249,7 +249,8 @@ describe('e2e — MCP server over stdio', () => {
       const list = await client.send('tools/list');
       const tools = ((list['result'] as { tools: Array<{ name: string }> }).tools).map((t) => t.name);
       assert.ok(tools.includes('aegis_guard_action'));
-      assert.equal(tools.length, 8);
+      assert.equal(tools.length, 10);
+      assert.ok(tools.includes('aegis_execute'), 'gateway tool must be advertised');
 
       // The agent seeds a mark so the firewall can size a quantity-based order.
       const allowed = await client.send('tools/call', {

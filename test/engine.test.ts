@@ -289,10 +289,17 @@ describe('rule: loss and drawdown circuit breakers', () => {
   });
 
   test('closing trades are still permitted after the loss limit trips', () => {
+    // A verified exit: there is a real long to sell into.
     const d = evaluate(
       { ...BUY_100, venue: 'futures-usds', side: 'SELL', reduceOnly: true },
       policy(['limits:', '  maxDailyLossUsd: 200']),
-      ctx({ counters: { ...ctx().counters, dailyRealizedPnlUsd: -250 } }),
+      ctx({
+        counters: { ...ctx().counters, dailyRealizedPnlUsd: -250 },
+        positions: [{
+          symbol: 'BTCUSDT', quantity: 0.01, entryPrice: 100_000, markPrice: 100_000,
+          notionalUsd: 1_000, leverage: 1, unrealizedPnlUsd: 0,
+        }],
+      }),
     );
     assert.equal(d.verdict, 'allow', 'a breaker must never trap the agent in a position');
   });
@@ -367,20 +374,43 @@ describe('rule: tempo controls', () => {
     assert.equal(d.verdict, 'allow');
   });
 
-  test('rate limits never block a reduce-only exit', () => {
+  test('rate limits never block a verified reduce-only exit', () => {
     const d = evaluate(
       { category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT', side: 'SELL', orderType: 'MARKET', quoteQuantity: 100, reduceOnly: true },
       policy(['limits:', '  maxOrdersPerMinute: 3', '  maxOrdersPerHour: 20']),
-      ctx({ counters: { ...ctx().counters, ordersLastMinute: 99, ordersLastHour: 99 } }),
+      ctx({
+        counters: { ...ctx().counters, ordersLastMinute: 99, ordersLastHour: 99 },
+        positions: [{
+          symbol: 'BTCUSDT', quantity: 0.01, entryPrice: 100_000, markPrice: 100_000,
+          notionalUsd: 1_000, leverage: 1, unrealizedPnlUsd: 0,
+        }],
+      }),
     );
     assert.equal(d.verdict, 'allow', 'a rate limiter must never trap the agent in a position');
   });
 
-  test('rate limits never block a protective stop order', () => {
+  test('rate limits DO apply to a stop-entry, which opens risk', () => {
+    // SEC-03: a STOP_MARKET without reduceOnly is an entry, not protection.
     const d = evaluate(
-      { category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT', side: 'SELL', orderType: 'STOP_MARKET', quoteQuantity: 100 },
+      { category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT', side: 'BUY', orderType: 'STOP_MARKET', quoteQuantity: 100 },
       policy(['limits:', '  maxOrdersPerMinute: 1']),
       ctx({ counters: { ...ctx().counters, ordersLastMinute: 50 } }),
+    );
+    assert.equal(d.verdict, 'deny');
+    assert.ok(findingIds(d).includes('rate-limit-minute'));
+  });
+
+  test('rate limits never block a reduce-only protective stop', () => {
+    const d = evaluate(
+      { category: 'trade', venue: 'futures-usds', symbol: 'BTCUSDT', side: 'SELL', orderType: 'STOP_MARKET', quoteQuantity: 100, reduceOnly: true },
+      policy(['limits:', '  maxOrdersPerMinute: 1']),
+      ctx({
+        counters: { ...ctx().counters, ordersLastMinute: 50 },
+        positions: [{
+          symbol: 'BTCUSDT', quantity: 0.01, entryPrice: 100_000, markPrice: 100_000,
+          notionalUsd: 1_000, leverage: 1, unrealizedPnlUsd: 0,
+        }],
+      }),
     );
     assert.equal(d.verdict, 'allow');
   });
@@ -453,11 +483,16 @@ describe('rule: order integrity guards', () => {
     assert.equal(d.verdict, 'allow');
   });
 
-  test('the stop requirement does not apply to reduce-only exits', () => {
+  test('the stop requirement does not apply to verified reduce-only exits', () => {
     const d = evaluate(
-      { ...BUY_100, venue: 'futures-usds', reduceOnly: true },
+      { ...BUY_100, venue: 'futures-usds', side: 'SELL', reduceOnly: true },
       policy(['guards:', '  requireStopLoss: true']),
-      ctx(),
+      ctx({
+        positions: [{
+          symbol: 'BTCUSDT', quantity: 0.01, entryPrice: 100_000, markPrice: 100_000,
+          notionalUsd: 1_000, leverage: 1, unrealizedPnlUsd: 0,
+        }],
+      }),
     );
     assert.equal(d.verdict, 'allow');
   });

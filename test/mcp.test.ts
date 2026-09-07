@@ -25,46 +25,46 @@ beforeEach(() => {
 
 afterEach(() => rmSync(dir, { recursive: true, force: true }));
 
-function call(method: string, params?: unknown, id: number | string = 1) {
+async function call(method: string, params?: unknown, id: number | string = 1) {
   return handler({ jsonrpc: '2.0', id, method, params });
 }
 
-function toolCall(name: string, args: Record<string, unknown>) {
-  const res = call('tools/call', { name, arguments: args });
+async function toolCall(name: string, args: Record<string, unknown>) {
+  const res = await call('tools/call', { name, arguments: args });
   const content = (res?.result as { content: Array<{ type: string; text: string }> }).content;
   return JSON.parse(content[0]?.text ?? '{}');
 }
 
 describe('MCP — lifecycle', () => {
-  test('initialize returns the protocol version and tool capability', () => {
-    const res = call('initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {} });
+  test('initialize returns the protocol version and tool capability', async () => {
+    const res = await call('initialize', { protocolVersion: PROTOCOL_VERSION, capabilities: {} });
     const r = res?.result as Record<string, unknown>;
     assert.equal(r['protocolVersion'], PROTOCOL_VERSION);
     assert.ok((r['capabilities'] as Record<string, unknown>)['tools']);
     assert.equal((r['serverInfo'] as Record<string, string>)['name'], 'aegis');
   });
 
-  test('notifications produce no response', () => {
-    assert.equal(handler({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
+  test('notifications produce no response', async () => {
+    assert.equal(await handler({ jsonrpc: '2.0', method: 'notifications/initialized' }), null);
   });
 
-  test('ping is answered', () => {
-    assert.deepEqual(call('ping')?.result, {});
+  test('ping is answered', async () => {
+    assert.deepEqual((await call('ping'))?.result, {});
   });
 
-  test('an unknown method returns JSON-RPC error -32601', () => {
-    const res = call('does/not/exist');
+  test('an unknown method returns JSON-RPC error -32601', async () => {
+    const res = await call('does/not/exist');
     assert.equal(res?.error?.code, -32601);
   });
 
-  test('the response echoes the request id', () => {
-    assert.equal(call('ping', undefined, 'abc')?.id, 'abc');
+  test('the response echoes the request id', async () => {
+    assert.equal((await call('ping', undefined, 'abc'))?.id, 'abc');
   });
 });
 
 describe('MCP — tools/list', () => {
-  test('advertises every tool with a JSON schema', () => {
-    const res = call('tools/list');
+  test('advertises every tool with a JSON schema', async () => {
+    const res = await call('tools/list');
     const tools = (res?.result as { tools: Array<Record<string, unknown>> }).tools;
     assert.equal(tools.length, TOOLS.length);
     for (const t of tools) {
@@ -74,8 +74,8 @@ describe('MCP — tools/list', () => {
     }
   });
 
-  test('exposes the guard tool an agent must call first', () => {
-    const tools = (call('tools/list')?.result as { tools: Array<{ name: string }> }).tools;
+  test('exposes the guard tool an agent must call first', async () => {
+    const tools = ((await call('tools/list'))?.result as { tools: Array<{ name: string }> }).tools;
     assert.ok(tools.some((t) => t.name === 'aegis_guard_action'));
     assert.ok(tools.some((t) => t.name === 'aegis_status'));
     assert.ok(tools.some((t) => t.name === 'aegis_record_execution'));
@@ -85,113 +85,113 @@ describe('MCP — tools/list', () => {
 });
 
 describe('MCP — aegis_guard_action', () => {
-  test('allows a small compliant order', () => {
-    const out = toolCall('aegis_guard_action', {
+  test('allows a small compliant order', async () => {
+    const out = await toolCall('aegis_guard_action', {
       category: 'trade', venue: 'spot', symbol: 'BTCUSDT', side: 'BUY', orderType: 'MARKET', quoteQuantity: 50,
     });
     assert.equal(out.verdict, 'allow');
     assert.ok(out.ledgerSeq >= 1);
   });
 
-  test('denies an oversized order and explains why', () => {
-    const out = toolCall('aegis_guard_action', {
+  test('denies an oversized order and explains why', async () => {
+    const out = await toolCall('aegis_guard_action', {
       category: 'trade', venue: 'spot', symbol: 'BTCUSDT', side: 'BUY', orderType: 'MARKET', quoteQuantity: 5_000,
     });
     assert.equal(out.verdict, 'deny');
     assert.ok(out.findings.some((f: { ruleId: string }) => f.ruleId === 'max-notional-per-order'));
   });
 
-  test('escalates a large-but-legal order to review', () => {
-    const out = toolCall('aegis_guard_action', {
+  test('escalates a large-but-legal order to review', async () => {
+    const out = await toolCall('aegis_guard_action', {
       category: 'trade', venue: 'spot', symbol: 'BTCUSDT', side: 'BUY', orderType: 'MARKET', quoteQuantity: 300,
     });
     assert.equal(out.verdict, 'review');
   });
 
-  test('a malformed argument object yields a deny, not a crash', () => {
-    const out = toolCall('aegis_guard_action', { category: 'trade', venue: 'spot', symbol: 'BTCUSDT' });
+  test('a malformed argument object yields a deny, not a crash', async () => {
+    const out = await toolCall('aegis_guard_action', { category: 'trade', venue: 'spot', symbol: 'BTCUSDT' });
     assert.equal(out.verdict, 'deny');
   });
 
-  test('every guard call is written to the ledger', () => {
+  test('every guard call is written to the ledger', async () => {
     const before = aegis.ledger.size();
-    toolCall('aegis_guard_action', { category: 'read', venue: 'market-data' });
+    await toolCall('aegis_guard_action', { category: 'read', venue: 'market-data' });
     assert.equal(aegis.ledger.size(), before + 1);
   });
 });
 
 describe('MCP — status, execution, ledger, stop', () => {
-  test('status reports posture and budgets', () => {
-    const out = toolCall('aegis_status', {});
+  test('status reports posture and budgets', async () => {
+    const out = await toolCall('aegis_status', {});
     assert.equal(out.killSwitch, false);
     assert.equal(out.equityUsd, 10_000);
     assert.ok(out.budgets);
-    assert.ok(out.rulesActive >= 20);
+    assert.ok(out.rulesActive >= 21);
   });
 
-  test('recording an execution moves the daily counters', () => {
-    toolCall('aegis_record_execution', {
+  test('recording an execution moves the daily counters', async () => {
+    await toolCall('aegis_record_execution', {
       actionId: 'x1', category: 'trade', venue: 'spot', symbol: 'BTCUSDT', notionalUsd: 120, realizedPnlUsd: -5,
     });
-    const out = toolCall('aegis_status', {});
+    const out = await toolCall('aegis_status', {});
     assert.equal(out.dailyNotionalUsd, 120);
     assert.equal(out.dailyRealizedPnlUsd, -5);
   });
 
-  test('verify_ledger reports an intact chain', () => {
-    toolCall('aegis_guard_action', { category: 'read', venue: 'market-data' });
-    const out = toolCall('aegis_verify_ledger', {});
+  test('verify_ledger reports an intact chain', async () => {
+    await toolCall('aegis_guard_action', { category: 'read', venue: 'market-data' });
+    const out = await toolCall('aegis_verify_ledger', {});
     assert.equal(out.ok, true);
     assert.equal(out.brokenAt, null);
   });
 
-  test('emergency stop engages the kill switch and blocks the next trade', () => {
-    const stop = toolCall('aegis_emergency_stop', { reason: 'demo halt' });
+  test('emergency stop engages the kill switch and blocks the next trade', async () => {
+    const stop = await toolCall('aegis_emergency_stop', { reason: 'demo halt' });
     assert.equal(stop.killSwitch, true);
-    const out = toolCall('aegis_guard_action', {
+    const out = await toolCall('aegis_guard_action', {
       category: 'trade', venue: 'spot', symbol: 'BTCUSDT', side: 'BUY', quoteQuantity: 10,
     });
     assert.equal(out.verdict, 'deny');
     assert.ok(out.findings.some((f: { ruleId: string }) => f.ruleId === 'kill-switch'));
   });
 
-  test('resume clears the halt', () => {
-    toolCall('aegis_emergency_stop', { reason: 'x' });
-    const res = toolCall('aegis_resume', {});
+  test('resume clears the halt', async () => {
+    await toolCall('aegis_emergency_stop', { reason: 'x' });
+    const res = await toolCall('aegis_resume', {});
     assert.equal(res.killSwitch, false);
-    const out = toolCall('aegis_guard_action', {
+    const out = await toolCall('aegis_guard_action', {
       category: 'trade', venue: 'spot', symbol: 'BTCUSDT', side: 'BUY', quoteQuantity: 10,
     });
     assert.equal(out.verdict, 'allow');
   });
 
-  test('explain_policy returns the active limits', () => {
-    const out = toolCall('aegis_explain_policy', {});
+  test('explain_policy returns the active limits', async () => {
+    const out = await toolCall('aegis_explain_policy', {});
     assert.ok(out.limits);
     assert.ok(Array.isArray(out.rules));
-    assert.ok(out.rules.length >= 20);
+    assert.ok(out.rules.length >= 21);
   });
 });
 
 describe('MCP — error handling', () => {
-  test('an unknown tool name returns an MCP tool error', () => {
-    const res = call('tools/call', { name: 'aegis_nope', arguments: {} });
+  test('an unknown tool name returns an MCP tool error', async () => {
+    const res = await call('tools/call', { name: 'aegis_nope', arguments: {} });
     assert.equal((res?.result as { isError: boolean }).isError, true);
   });
 
-  test('missing arguments are tolerated as an empty object', () => {
-    const res = call('tools/call', { name: 'aegis_status' });
+  test('missing arguments are tolerated as an empty object', async () => {
+    const res = await call('tools/call', { name: 'aegis_status' });
     assert.equal((res?.result as { isError?: boolean }).isError, undefined);
   });
 
-  test('a bad params shape returns -32602', () => {
-    const res = call('tools/call', { notName: true });
+  test('a bad params shape returns -32602', async () => {
+    const res = await call('tools/call', { notName: true });
     assert.equal(res?.error?.code, -32602);
   });
 
-  test('handler never throws on arbitrary input', () => {
+  test('handler never throws on arbitrary input', async () => {
     for (const bad of [null, undefined, 42, 'x', [], { jsonrpc: '1.0' }]) {
-      assert.doesNotThrow(() => handler(bad as never));
+      await assert.doesNotReject(() => handler(bad as never));
     }
   });
 });

@@ -32,8 +32,33 @@ jobs:
       - name: Unit + end-to-end tests
         run: node --test "dist/test/**/*.test.js"
 
-      - name: Demo scenario must behave exactly as specified
+      - name: Demo must hold every invariant (exits non-zero if any is violated)
         run: node dist/src/demo/scenario.js
+
+      - name: Security regression suite must pass on its own
+        run: node --test dist/test/security.test.js
+
+      - name: Execution gateway suite must pass on its own
+        run: node --test dist/test/gateway.test.js
+
+      - name: Exit-code contract — review MUST be non-zero
+        run: |
+          export AEGIS_HOME="$(mktemp -d)"
+          P=policies/conservative.yaml
+          node dist/src/cli/main.js -p $P account --equity 10000 --mark BTCUSDT=100000 > /dev/null
+          set +e
+          node dist/src/cli/main.js -p $P check --category trade --venue spot \
+            --symbol BTCUSDT --side BUY --quoteQuantity 150 > /dev/null 2>&1
+          CODE=$?
+          set -e
+          echo "review exit code: $CODE"
+          test "$CODE" -eq 3
+
+      - name: All 21 rules are registered
+        run: |
+          COUNT=$(node dist/src/cli/main.js --json rules | node -p "JSON.parse(require('fs').readFileSync(0)).length")
+          echo "rules: $COUNT"
+          test "$COUNT" -eq 21
 
       - name: Every shipped policy must validate
         run: |

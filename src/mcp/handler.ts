@@ -11,6 +11,7 @@
  */
 
 import type { Aegis } from '../aegis.js';
+import type { ExecutionGateway } from '../gateway/executor.js';
 import type { ProposedAction } from '../types.js';
 
 export const PROTOCOL_VERSION = '2024-11-05';
@@ -59,7 +60,8 @@ const ACTION_SCHEMA: Record<string, unknown> = {
     price: { type: 'number', description: 'Limit price, when applicable.' },
     quoteQuantity: { type: 'number', description: 'Quote-asset notional (quoteOrderQty).' },
     leverage: { type: 'number' },
-    reduceOnly: { type: 'boolean', description: 'True when the order can only reduce an existing position.' },
+    reduceOnly: { type: 'boolean', description: 'True when the order can only reduce an existing position. Verified against real positions.' },
+    closePosition: { type: 'boolean', description: 'True when the order closes the entire position.' },
     hasStopLoss: { type: 'boolean', description: 'True when a protective stop is attached to this entry.' },
     destination: { type: 'string', description: 'Destination wallet for transfers.' },
   },
@@ -69,11 +71,28 @@ const ACTION_SCHEMA: Record<string, unknown> = {
 
 export const TOOLS: readonly ToolDef[] = Object.freeze([
   {
+    name: 'aegis_execute',
+    description:
+      'GATEWAY MODE — the ONLY way to reach Binance. Evaluates the action against policy and, if allowed, ' +
+      'places it through Binance Agent OS itself, then settles the risk counters from the REAL fill. ' +
+      'Returns status "executed" (done), "pending-approval" (a human must approve; NOTHING was sent), ' +
+      '"blocked" (policy refused; NOTHING was sent) or "failed". Prefer this over aegis_guard_action: ' +
+      'with it, no Binance write can bypass the firewall.',
+    inputSchema: ACTION_SCHEMA,
+  },
+  {
+    name: 'aegis_pending_approvals',
+    description:
+      'List actions parked awaiting human approval. Show these to the user when they ask what is waiting on them.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'aegis_guard_action',
     description:
-      'MANDATORY PRE-FLIGHT CHECK. Call this before every Binance action that places an order, moves funds or ' +
-      'changes exposure. Returns verdict "allow" (proceed), "review" (stop and ask the human to confirm) or ' +
-      '"deny" (do not proceed; relay the reason). Every call is written to a tamper-evident audit ledger.',
+      'ADVISORY MODE pre-flight check. Use only when the agent executes through a separate Binance tool. ' +
+      'Returns verdict "allow" (proceed), "review" (stop and ask the human to confirm) or ' +
+      '"deny" (do not proceed; relay the reason). Every call is written to a tamper-evident audit ledger. ' +
+      'Note: this cannot enforce anything on its own — prefer aegis_execute.',
     inputSchema: ACTION_SCHEMA,
   },
   {
@@ -171,10 +190,42 @@ function asObject(value: unknown): Record<string, unknown> {
     : {};
 }
 
-/** Build a handler bound to an Aegis instance. Never throws. */
-export function createHandler(aegis: Aegis): (req: unknown) => JsonRpcResponse | null {
-  function runTool(name: string, args: Record<string, unknown>): Record<string, unknown> {
+/**
+ * Build a handler bound to an Aegis instance. Never throws.
+ *
+ * Async because gateway execution reaches the venue; advisory tools resolve
+ * immediately. Returning a Promise uniformly keeps the transport simple.
+ */
+export function createHandler(
+  aegis: Aegis,
+  gateway?: ExecutionGateway,
+): (req: unknown) => Promise<JsonRpcResponse | null> {
+  async function runTool(name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
     switch (name) {
+      case 'aegis_execute': {
+        if (!gateway) {
+          return textResult({
+            error: 'gateway mode is not enabled on this server',
+            hint: 'Start with `aegis mcp --gateway`, or use aegis_guard_action in advisory mode.',
+          }, true);
+        }
+        const outcome = await gateway.execute(args as unknown as ProposedAction);
+        return textResult({
+          status: outcome.status,
+          verdict: outcome.verdict,
+          summary: outcome.summary,
+          ticketId: outcome.ticketId,
+          findings: outcome.decision.findings,
+          fill: outcome.fill,
+          error: outcome.error,
+          ledgerSeq: outcome.decision.ledgerSeq,
+        });
+      }
+
+      case 'aegis_pending_approvals':
+        if (!gateway) return textResult({ pending: [], note: 'gateway mode is not enabled' });
+        return textResult({ pending: gateway.listPending() });
+
       case 'aegis_guard_action':
         return textResult(aegis.guard(args as unknown as ProposedAction));
 
@@ -231,7 +282,7 @@ export function createHandler(aegis: Aegis): (req: unknown) => JsonRpcResponse |
     }
   }
 
-  return function handle(req: unknown): JsonRpcResponse | null {
+  return async function handle(req: unknown): Promise<JsonRpcResponse | null> {
     const request = asObject(req) as JsonRpcRequest;
     const id = request.id ?? null;
     const method = typeof request.method === 'string' ? request.method : '';
@@ -248,9 +299,11 @@ export function createHandler(aegis: Aegis): (req: unknown) => JsonRpcResponse |
             capabilities: { tools: { listChanged: false } },
             serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
             instructions:
-              'Aegis is the risk firewall for Binance Agent OS. Call aegis_guard_action BEFORE every order, ' +
-              'transfer or exposure change, and aegis_record_execution AFTER it fills. Treat "deny" as final ' +
-              'and "review" as a hard stop pending human confirmation.',
+              'Aegis is the risk firewall for Binance Agent OS. In GATEWAY mode call aegis_execute for every ' +
+              'order, transfer or exposure change — it is the only path to Binance and it settles the risk ' +
+              'counters from the real fill. In ADVISORY mode call aegis_guard_action BEFORE the action and ' +
+              'aegis_record_execution AFTER it fills. Treat "deny" as final and "review"/"pending-approval" ' +
+              'as a hard stop pending human confirmation. Never call aegis_resume on your own initiative.',
           });
 
         case 'ping':
@@ -265,7 +318,7 @@ export function createHandler(aegis: Aegis): (req: unknown) => JsonRpcResponse |
           if (typeof name !== 'string' || name === '') {
             return fail(id, -32602, 'invalid params: "name" is required');
           }
-          return ok(id, runTool(name, asObject(params['arguments'])));
+          return ok(id, await runTool(name, asObject(params['arguments'])));
         }
 
         case 'resources/list':

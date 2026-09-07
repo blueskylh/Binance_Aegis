@@ -11,9 +11,17 @@ import type { Finding, NormalizedAction, Policy, RiskContext } from '../../types
 
 const round2 = (n: number): number => Math.round(n * 100) / 100;
 
-export function maxNotionalPerOrderRule(action: NormalizedAction, policy: Policy): Finding[] {
+/**
+ * Per-order notional cap.
+ *
+ * Exempts verified exits. A per-order cap that blocks a $1,000 close because the
+ * cap is $500 does not reduce risk — it strands the position. (Regression:
+ * SEC-01.)
+ */
+export function maxNotionalPerOrderRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxNotionalUsdPerOrder;
   if (limit === null || action.notionalUsd === 0) return [];
+  if (isRiskReducing(action, ctx)) return [];
   if (action.notionalUsd <= limit) return [];
   return [{
     ruleId: 'max-notional-per-order',
@@ -28,6 +36,8 @@ export function maxNotionalPerOrderRule(action: NormalizedAction, policy: Policy
 export function maxDailyNotionalRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxDailyNotionalUsd;
   if (limit === null || action.notionalUsd === 0) return [];
+  // An exhausted turnover budget must not strand an open position either.
+  if (isRiskReducing(action, ctx)) return [];
   const projected = ctx.counters.dailyNotionalUsd + action.notionalUsd;
   if (projected <= limit) return [];
   return [{
@@ -44,7 +54,7 @@ export function maxDailyNotionalRule(action: NormalizedAction, policy: Policy, c
 
 export function maxOpenExposureRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxOpenNotionalUsd;
-  if (limit === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (limit === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   const current = ctx.positions.reduce((sum, p) => sum + Math.abs(p.notionalUsd), 0);
   const projected = current + action.notionalUsd;
   if (projected <= limit) return [];
@@ -60,9 +70,10 @@ export function maxOpenExposureRule(action: NormalizedAction, policy: Policy, ct
   }];
 }
 
-export function maxLeverageRule(action: NormalizedAction, policy: Policy): Finding[] {
+export function maxLeverageRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxLeverage;
   if (limit === null || action.leverage === null) return [];
+  if (isRiskReducing(action, ctx)) return [];
   if (action.leverage <= limit) return [];
   return [{
     ruleId: 'max-leverage',
@@ -76,7 +87,7 @@ export function maxLeverageRule(action: NormalizedAction, policy: Policy): Findi
 
 export function maxPositionsOpenRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const limit = policy.limits.maxPositionsOpen;
-  if (limit === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (limit === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   // Adding to a position you already hold does not widen diversification risk.
   const alreadyHeld = action.symbol !== null && ctx.positions.some((p) => p.symbol === action.symbol);
   if (alreadyHeld) return [];
@@ -95,7 +106,7 @@ export function maxPositionsOpenRule(action: NormalizedAction, policy: Policy, c
 
 export function minEquityRule(action: NormalizedAction, policy: Policy, ctx: RiskContext): Finding[] {
   const floor = policy.guards.minAccountEquityUsd;
-  if (floor === null || isRiskReducing(action) || action.notionalUsd === 0) return [];
+  if (floor === null || isRiskReducing(action, ctx) || action.notionalUsd === 0) return [];
   if (ctx.equityUsd >= floor) return [];
   return [{
     ruleId: 'min-equity',

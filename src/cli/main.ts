@@ -11,6 +11,7 @@ import { resolve } from 'node:path';
 import { Aegis, DEFAULT_POLICY_YAML, defaultDataDir } from '../aegis.js';
 import { loadPolicyFile } from '../policy/schema.js';
 import { bar, bold, cyan, dim, green, red, severityDot, table, usd, verdictBadge, yellow } from './format.js';
+import { EXIT, exitCodeFor } from './exit.js';
 import type { ProposedAction } from '../types.js';
 
 const VERSION = '1.0.0';
@@ -73,8 +74,12 @@ ${bold('USAGE')}
   aegis <command> [options]
 
 ${bold('COMMANDS')}
-  ${cyan('check')} <action>        Evaluate a proposed action and record the decision
-  ${cyan('record')} --actionId ..   Record an execution (advances the budget counters)
+  ${cyan('execute')} <action>      ${bold('GATEWAY')} — evaluate AND execute via Binance Agent OS
+  ${cyan('approve')} <ticket>      Approve a parked action and execute it
+  ${cyan('pending')}               List actions awaiting human approval
+  ${cyan('doctor')}                Probe the live binance-cli integration, print evidence
+  ${cyan('check')} <action>        Advisory-only evaluation (does NOT execute)
+  ${cyan('record')} --actionId ..   Record an execution (advisory mode only)
   ${cyan('status')}                Current risk posture and budget consumption
   ${cyan('rules')}                 List the enforced rules
   ${cyan('policy show')}           Print the active policy
@@ -96,6 +101,12 @@ ${bold('GLOBAL OPTIONS')}
   -h, --help              This help
   -v, --version           Print version
 
+${bold('EXIT CODES')}  ${dim('(the integration contract)')}
+  ${green('0')}  ALLOW   proceed
+  ${red('1')}  DENY    do not proceed
+  ${yellow('2')}  USAGE   bad invocation
+  ${yellow('3')}  REVIEW  human must confirm — ${bold('non-zero, so `&&` stops here')}
+
 ${bold('EXAMPLES')}
   ${dim('# Would this order be allowed?')}
   aegis check --category trade --venue spot --symbol BTCUSDT --side BUY --quoteQuantity 250
@@ -114,11 +125,11 @@ function cmdCheck(g: GlobalOpts, args: string[]): number {
     action = parseAction(args);
   } catch (err) {
     out(red(`Could not parse the action: ${(err as Error).message}`));
-    return 2;
+    return EXIT.USAGE;
   }
   const result = aegis.guard(action);
 
-  if (g.json) { out(JSON.stringify(result, null, 2)); return result.verdict === 'deny' ? 1 : 0; }
+  if (g.json) { out(JSON.stringify(result, null, 2)); return exitCodeFor(result.verdict); }
 
   out();
   out(`${verdictBadge(result.verdict)}  ${bold(result.summary)}`);
@@ -134,10 +145,11 @@ function cmdCheck(g: GlobalOpts, args: string[]): number {
   }
   out();
   if (result.verdict === 'review') {
-    out(yellow('  → Human confirmation required before this may execute.'));
+    out(yellow('  → HUMAN CONFIRMATION REQUIRED. Exit code 3 — `&&` will NOT continue.'));
+    out(dim('    Approve deliberately with:  aegis approve ' + result.actionId));
     out();
   }
-  return result.verdict === 'deny' ? 1 : 0;
+  return exitCodeFor(result.verdict);
 }
 
 function cmdRecord(g: GlobalOpts, args: string[]): number {
@@ -156,7 +168,7 @@ function cmdRecord(g: GlobalOpts, args: string[]): number {
   if (!actionId) {
     out(red('usage: aegis record --actionId <id> --notionalUsd <n> [--realizedPnlUsd <n>] [--symbol S] [--venue V]'));
     out(dim('   The actionId must be the one returned by `aegis check` — that is what links a decision to its outcome.'));
-    return 2;
+    return EXIT.USAGE;
   }
 
   const entry = aegis.recordExecution({
@@ -173,6 +185,124 @@ function cmdRecord(g: GlobalOpts, args: string[]): number {
   out(green(`✅ execution recorded — ledger #${entry.seq}`));
   out(dim(`   ${actionId}  ·  notional ${usd(Number(opts['notionalUsd'] ?? 0))}  ·  PnL ${usd(Number(opts['realizedPnlUsd'] ?? 0))}`));
   return 0;
+}
+
+async function cmdDoctor(): Promise<number> {
+  const { BinanceAdapter } = await import('../adapters/binance.js');
+  const adapter = new BinanceAdapter();
+  out();
+  out(bold('  AEGIS DOCTOR — live Binance Agent OS integration probe'));
+  out(dim('  ' + '─'.repeat(70)));
+  out(dim('  Every row below is a real `binance-cli` invocation and its real result.'));
+  out();
+
+  const results = await adapter.probe();
+  for (const r of results) {
+    out(`  ${r.ok ? green('✓ ok  ') : red('✗ fail')} ${bold(r.label)}`);
+    out(dim(`         $ ${r.argv.join(' ')}`));
+    out(dim(`         ${r.detail || '(empty)'}`));
+    out();
+  }
+
+  const okCount = results.filter((r) => r.ok).length;
+  out(`  ${okCount}/${results.length} probes succeeded.`);
+  if (okCount === 0) {
+    out(dim('  binance-cli is not installed or not on PATH. Install it with:'));
+    out(dim("    curl --proto '=https' --tlsv1.2 -LsSf \\"));
+    out(dim('      https://github.com/binance/binance-cli/releases/latest/download/binance-cli-installer.sh | sh'));
+  } else if (okCount < results.length) {
+    out(dim('  Public probes work; authenticated ones need a binance-cli profile:'));
+    out(dim('    binance-cli profile create -i'));
+  }
+  out();
+  return okCount === 0 ? EXIT.DENY : EXIT.ALLOW;
+}
+
+async function buildGateway(g: GlobalOpts, dryRun: boolean) {
+  const { BinanceAdapter } = await import('../adapters/binance.js');
+  const { ExecutionGateway } = await import('../gateway/executor.js');
+  return new ExecutionGateway(makeAegis(g), new BinanceAdapter(), { dryRun });
+}
+
+interface RenderableOutcome {
+  status: string;
+  summary: string;
+  ticketId: string | null;
+  decision: { findings: Array<{ ruleId: string; severity: string; message: string }> };
+}
+
+function renderOutcome(r: RenderableOutcome): void {
+  out();
+  const badge = r.status === 'executed' ? green('EXECUTED')
+    : r.status === 'blocked' ? red('BLOCKED ')
+    : r.status === 'pending-approval' ? yellow('PENDING ')
+    : r.status === 'dry-run' ? cyan('DRY-RUN ')
+    : red('FAILED  ');
+  out(`  ${badge}  ${bold(r.summary)}`);
+  for (const f of r.decision.findings) {
+    out(`  ${severityDot(f.severity)} ${bold(f.ruleId)} — ${f.message}`);
+  }
+  if (r.status === 'pending-approval') {
+    out();
+    out(yellow(`  Nothing was sent to Binance. Approve with:  aegis approve ${String(r.ticketId)} --live`));
+  }
+  out();
+}
+
+async function cmdExecute(g: GlobalOpts, args: string[]): Promise<number> {
+  // Safe by default: you must opt in to touching real money.
+  const dryRun = !args.includes('--live');
+  const rest = args.filter((a) => a !== '--dry-run' && a !== '--live');
+  let action: ProposedAction;
+  try {
+    action = parseAction(rest);
+  } catch (err) {
+    out(red(`Could not parse the action: ${(err as Error).message}`));
+    return EXIT.USAGE;
+  }
+
+  const gw = await buildGateway(g, dryRun);
+  const r = await gw.execute(action);
+  if (g.json) { out(JSON.stringify(r, null, 2)); return exitCodeFor(r.verdict); }
+  renderOutcome(r);
+  if (dryRun && r.status === 'dry-run') out(dim('  Pass --live to actually place this order.\n'));
+  return exitCodeFor(r.verdict);
+}
+
+async function cmdApprove(g: GlobalOpts, args: string[]): Promise<number> {
+  const ticketId = args.find((a) => !a.startsWith('--'));
+  if (!ticketId) {
+    out(red('usage: aegis approve <ticket-id> [--live]'));
+    out(dim('   List what is waiting with:  aegis pending'));
+    return EXIT.USAGE;
+  }
+  const dryRun = !args.includes('--live');
+  const gw = await buildGateway(g, dryRun);
+  const r = await gw.approve(ticketId, process.env['USER'] ?? 'operator');
+  if (g.json) { out(JSON.stringify(r, null, 2)); return exitCodeFor(r.verdict); }
+  renderOutcome(r);
+  return exitCodeFor(r.verdict);
+}
+
+async function cmdPending(g: GlobalOpts): Promise<number> {
+  const gw = await buildGateway(g, true);
+  const pending = gw.listPending();
+  if (g.json) { out(JSON.stringify(pending, null, 2)); return EXIT.ALLOW; }
+  out();
+  if (pending.length === 0) {
+    out(dim('  Nothing awaiting approval.'));
+    out();
+    return EXIT.ALLOW;
+  }
+  out(bold(`  ${pending.length} ACTION(S) AWAITING YOUR APPROVAL`));
+  out();
+  for (const t of pending) {
+    out(`  ${yellow(t.id)}  ${bold(usd(t.notionalUsd))}  ${t.symbol ?? ''}`);
+    out(dim(`     ${t.summary}`));
+    out(dim(`     digest ${t.actionDigest.slice(0, 16)}…  ·  approve: aegis approve ${t.id} --live`));
+    out();
+  }
+  return EXIT.ALLOW;
 }
 
 function cmdStatus(g: GlobalOpts): number {
@@ -219,7 +349,7 @@ function cmdPolicy(g: GlobalOpts, args: string[]): number {
   const sub = args[0];
   if (sub === 'validate') {
     const path = args[1];
-    if (!path) { out(red('usage: aegis policy validate <file>')); return 2; }
+    if (!path) { out(red('usage: aegis policy validate <file>')); return EXIT.USAGE; }
     try {
       const p = loadPolicyFile(path);
       out(green(`✅ ${path} is valid — policy "${p.name}" (${p.mode}, default ${p.default})`));
@@ -280,7 +410,7 @@ function cmdLedger(g: GlobalOpts, args: string[]): number {
   }
 
   out(red(`unknown ledger subcommand "${sub}" (try: verify, tail)`));
-  return 2;
+  return EXIT.USAGE;
 }
 
 function cmdAccount(g: GlobalOpts, args: string[]): number {
@@ -299,7 +429,7 @@ function cmdAccount(g: GlobalOpts, args: string[]): number {
   }
   if (equityUsd === null && Object.keys(marks).length === 0) {
     out(red('usage: aegis account --equity 10000 [--mark BTCUSDT=100000]'));
-    return 2;
+    return EXIT.USAGE;
   }
   const current = aegis.status();
   aegis.updateAccount({
@@ -347,6 +477,10 @@ async function main(): Promise<number> {
 
   switch (cmd) {
     case 'check': return cmdCheck(globals, args);
+    case 'execute': return await cmdExecute(globals, args);
+    case 'approve': return await cmdApprove(globals, args);
+    case 'pending': return await cmdPending(globals);
+    case 'doctor': return await cmdDoctor();
     case 'record': return cmdRecord(globals, args);
     case 'status': return cmdStatus(globals);
     case 'rules': return cmdRules(globals);
@@ -395,7 +529,7 @@ async function main(): Promise<number> {
     default:
       out(red(`unknown command "${String(cmd)}"`));
       out(HELP);
-      return 2;
+      return EXIT.USAGE;
   }
 }
 

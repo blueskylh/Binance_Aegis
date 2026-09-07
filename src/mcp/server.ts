@@ -12,14 +12,19 @@
  */
 
 import { Aegis } from '../aegis.js';
+import { BinanceAdapter } from '../adapters/binance.js';
+import { ExecutionGateway } from '../gateway/executor.js';
 import { createHandler, type JsonRpcResponse } from './handler.js';
 
-function parseArgs(argv: string[]): { policyPath?: string; dataDir?: string } {
-  const out: { policyPath?: string; dataDir?: string } = {};
+function parseArgs(argv: string[]): { policyPath?: string; dataDir?: string; gateway: boolean; dryRun: boolean } {
+  const out: { policyPath?: string; dataDir?: string; gateway: boolean; dryRun: boolean } =
+    { gateway: false, dryRun: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if ((arg === '--policy' || arg === '-p') && argv[i + 1]) { out.policyPath = argv[i + 1] as string; i += 1; }
     else if ((arg === '--data-dir' || arg === '-d') && argv[i + 1]) { out.dataDir = argv[i + 1] as string; i += 1; }
+    else if (arg === '--gateway') out.gateway = true;
+    else if (arg === '--dry-run') out.dryRun = true;
   }
   return out;
 }
@@ -39,11 +44,17 @@ function main(): void {
     return;
   }
 
-  const handle = createHandler(aegis);
+  // Gateway mode: Aegis holds the credentials and becomes the only write path.
+  const gateway = args.gateway
+    ? new ExecutionGateway(aegis, new BinanceAdapter(), { dryRun: args.dryRun })
+    : undefined;
+
+  const handle = createHandler(aegis, gateway);
 
   process.stderr.write(
     `[aegis] MCP server ready — policy "${aegis.policy.name}" (${aegis.policy.mode}), ` +
-    `${aegis.rules().length} rules, data dir ${aegis.dataDir}\n`,
+    `${aegis.rules().length} rules, ${args.gateway ? `GATEWAY${args.dryRun ? ' (dry-run)' : ''}` : 'advisory'} mode, ` +
+    `data dir ${aegis.dataDir}\n`,
   );
 
   const send = (res: JsonRpcResponse): void => {
@@ -73,14 +84,12 @@ function main(): void {
       // Batch requests are legal JSON-RPC; handle them rather than choking.
       if (Array.isArray(parsed)) {
         for (const item of parsed) {
-          const res = handle(item);
-          if (res !== null) send(res);
+          void handle(item).then((res) => { if (res !== null) send(res); });
         }
         continue;
       }
 
-      const res = handle(parsed);
-      if (res !== null) send(res);
+      void handle(parsed).then((res) => { if (res !== null) send(res); });
     }
   });
 

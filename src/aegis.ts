@@ -12,7 +12,7 @@ import { evaluate, RULES } from './core/engine.js';
 import { Ledger, type VerifyResult } from './ledger/ledger.js';
 import { loadPolicyFile, loadPolicyFromString } from './policy/schema.js';
 import { RiskStore, type AccountSnapshot, type ExecutionRecord } from './state/store.js';
-import type { Decision, LedgerEntry, Policy, ProposedAction } from './types.js';
+import type { Decision, LedgerEntry, NormalizedAction, Policy, ProposedAction } from './types.js';
 
 export interface AegisOptions {
   /** Path to a YAML/JSON policy file. */
@@ -40,6 +40,8 @@ export interface GuardResult {
   mode: string;
   ledgerSeq: number;
   ledgerHash: string;
+  /** The canonical action the engine actually judged. The gateway executes THIS. */
+  normalized: NormalizedAction;
 }
 
 export class Aegis {
@@ -117,6 +119,7 @@ export class Aegis {
       mode: this.policy.mode,
       ledgerSeq: entry.seq,
       ledgerHash: entry.hash,
+      normalized: decision.action,
     };
   }
 
@@ -135,6 +138,11 @@ export class Aegis {
 
   updateAccount(snapshot: AccountSnapshot): void {
     this.store.updateAccount(snapshot);
+  }
+
+  /** Append a free-form audit note. Used by the gateway to record its own actions. */
+  note(message: string, extra: Record<string, unknown> = {}): LedgerEntry {
+    return this.store.note(message, this.now(), extra);
   }
 
   halt(reason: string): void {
