@@ -121,6 +121,21 @@ jobs:
             '{"category":"read","venue":"market-data","symbol":"BTCUSDT"}'
           node dist/src/cli/main.js ledger verify
 
+      - name: Documentation numbers must match the code
+        run: |
+          TESTS=$(node --test "dist/test/**/*.test.js" 2>&1 | grep -oP '^# tests \K\d+')
+          RULES=$(node --input-type=module -e "import {RULES} from './dist/src/core/rules/index.js'; console.log(RULES.length)")
+          echo "code says: $TESTS tests, $RULES rules"
+          FAIL=0
+          for f in README.md README.en.md docs/*.md skill/*/SKILL.md; do
+            # any "<n> tests" or "<n> 个测试" that is not the real count is stale
+            BAD=$(grep -oE '[0-9]+ (tests|个测试)' "$f" 2>/dev/null | grep -vE "^($TESTS) " || true)
+            if [ -n "$BAD" ]; then echo "::error file=$f::stale test count: $BAD"; FAIL=1; fi
+            BADR=$(grep -oE '[0-9]+ (deterministic rules|条确定性规则)' "$f" 2>/dev/null | grep -vE "^($RULES) " || true)
+            if [ -n "$BADR" ]; then echo "::error file=$f::stale rule count: $BADR"; FAIL=1; fi
+          done
+          exit $FAIL
+
       - name: Confirm zero runtime dependencies
         run: |
           DEPS=$(node -p "Object.keys(require('./package.json').dependencies || {}).length")

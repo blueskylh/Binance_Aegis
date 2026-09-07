@@ -18,7 +18,7 @@ nothing reaches Binance without passing through it.
 ├──────────────────────────────────────────────────────────────────────┤
 │  Facade              Aegis  (orchestration, one place)               │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Engine (pure)       normalize → 21 rules → aggregate → mode         │
+│  Engine (pure)       normalize → 23 rules → aggregate → mode         │
 ├──────────────────────────────────────────────────────────────────────┤
 │  Evidence            Ledger (hash chain)  ·  RiskStore (counters)    │
 ├──────────────────────────────────────────────────────────────────────┤
@@ -40,7 +40,7 @@ Three consequences:
 
 1. **Reproducibility.** Any decision in the ledger can be re-evaluated years later and reach the
    same verdict. Auditability is not a feature bolted on; it falls out of the design.
-2. **Testability.** 211 tests run with no mocks, no fake timers and no network.
+2. **Testability.** 333 tests run with no mocks, no fake timers and no network.
 3. **No hidden state.** A rule cannot accumulate anything between calls, so it cannot drift.
 
 ---
