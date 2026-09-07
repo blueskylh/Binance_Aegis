@@ -11,7 +11,7 @@
 npm install && npm run build
 
 node dist/src/demo/scenario.js          # three acts, ~5s, no keys, no network
-node --test "dist/test/**/*.test.js"    # 294 tests
+node --test "dist/test/**/*.test.js"    # 297 tests
 node dist/src/cli/main.js capabilities  # exactly what it will execute
 node dist/src/cli/main.js doctor        # real binance-cli integration evidence
 node dist/src/cli/main.js ledger verify
@@ -46,7 +46,7 @@ credentials and is the only path to the exchange.
 | **CLI** | 19 commands; exit codes `0/1/2/3` where `3` = review |
 | **Guardian** | Portfolio circuit breakers with stale-data protection |
 | **Skills Hub skill** | In Binance's contribution format |
-| **Tests** | 294 — unit, gateway, 17 security regressions, 12 self-audit regressions, real-process E2E |
+| **Tests** | 297 — unit, gateway, 17 security regressions, 12 self-audit regressions, real-process E2E |
 | **Dependencies** | **Zero** at runtime |
 
 ---

@@ -11,7 +11,7 @@
 
 *23 deterministic rules · zero LLMs in the enforcement path · hash-chained audit ledger · zero runtime dependencies*
 
-[![tests](https://img.shields.io/badge/tests-294%20passing-brightgreen)]()
+[![tests](https://img.shields.io/badge/tests-297%20passing-brightgreen)]()
 [![security](https://img.shields.io/badge/security%20regressions-35-critical)]()
 [![deps](https://img.shields.io/badge/runtime%20dependencies-0-blue)]()
 [![node](https://img.shields.io/badge/node-%E2%89%A522-green)]()
@@ -272,7 +272,7 @@ worse than none.
 ## Engineering
 
 ```
-294 tests · 0 failures · 35 security regressions · 0 runtime dependencies
+297 tests · 0 failures · 35 security regressions · 0 runtime dependencies
 ```
 
 ```bash

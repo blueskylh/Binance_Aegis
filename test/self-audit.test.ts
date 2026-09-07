@@ -300,3 +300,47 @@ describe('SA-06 — in-flight reservations expire', () => {
     assert.equal(reg.activeCount(now + 200_000), 1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// SA-07 — a control that ships disabled is a control that does not exist
+// ---------------------------------------------------------------------------
+
+describe('SA-07 — shipped policies exercise every guard the engine offers', () => {
+  const policyDir = new URL('../../policies/', import.meta.url);
+
+  test('every bundled policy is valid', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    const files = readdirSync(policyDir).filter((f) => f.endsWith('.yaml'));
+    assert.ok(files.length >= 3);
+    for (const f of files) {
+      assert.doesNotThrow(
+        () => loadPolicyFromString(readFileSync(new URL(f, policyDir), 'utf8')),
+        `${f} must parse`,
+      );
+    }
+  });
+
+  test('every bundled policy enables the freshness and stop-distance guards', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    for (const f of readdirSync(policyDir).filter((x) => x.endsWith('.yaml'))) {
+      const p = loadPolicyFromString(readFileSync(new URL(f, policyDir), 'utf8'));
+      assert.notEqual(
+        p.limits.maxPositionSnapshotAgeSec, null,
+        `${f}: reduce-only verification is meaningless without a freshness bound`,
+      );
+      assert.notEqual(
+        p.guards.maxStopDistancePct, null,
+        `${f}: requireStopLoss without a distance cap accepts a stop 90% away`,
+      );
+    }
+  });
+
+  test('no bundled policy permits withdrawals', async () => {
+    const { readdirSync, readFileSync } = await import('node:fs');
+    for (const f of readdirSync(policyDir).filter((x) => x.endsWith('.yaml'))) {
+      const p = loadPolicyFromString(readFileSync(new URL(f, policyDir), 'utf8'));
+      const allowsWithdraw = p.allow.categories?.includes('withdraw') ?? false;
+      assert.equal(allowsWithdraw, false, `${f} must never allowlist withdraw`);
+    }
+  });
+});

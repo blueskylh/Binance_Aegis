@@ -20,18 +20,20 @@ limits:
   maxOrdersPerMinute: 5
   maxOrdersPerHour: 30
   maxPositionsOpen: 4
+  maxPositionSnapshotAgeSec: 600  # generous while you are still observing
 
 allow:
-  categories: ["read", "trade", "cancel", "transfer"]
-  venues: ["spot", "futures-usds", "convert", "market-data", "wallet"]
+  categories: ["read", "trade", "cancel"]
+  venues: ["spot", "futures-usds", "market-data"]
 
 deny:
-  categories: ["withdraw"]
+  categories: ["withdraw", "transfer", "onchain"]
 
 guards:
   priceDeviationPct: 10
   minAccountEquityUsd: 50
   requireStopLoss: true
+  maxStopDistancePct: 15
   cooldownSecondsAfterLoss: 180
   reviewAboveNotionalUsd: 200
   blockDuplicateActionIds: true

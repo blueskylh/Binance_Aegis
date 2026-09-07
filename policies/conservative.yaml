@@ -16,6 +16,10 @@ limits:
   maxOrdersPerMinute: 2
   maxOrdersPerHour: 12
   maxPositionsOpen: 2
+  # Reduce-only exemptions are only as trustworthy as the positions they are
+  # checked against. Past this age Aegis refuses the exemption instead of
+  # guessing — run the guardian, or `aegis sync`, to keep it fresh.
+  maxPositionSnapshotAgeSec: 120
 
 allow:
   categories: ["read", "trade", "cancel"]
@@ -28,7 +32,10 @@ deny:
 guards:
   priceDeviationPct: 3            # fat-finger / hallucinated-price tolerance
   minAccountEquityUsd: 200
+  # Requires a concrete `stopPrice` on leveraged entries — a `hasStopLoss: true`
+  # claim is NOT accepted. Aegis validates the price and places the stop itself.
   requireStopLoss: true
+  maxStopDistancePct: 5           # a stop 20% away is not a risk control
   tradingHoursUtc: { from: "06:00", to: "22:00" }
   cooldownSecondsAfterLoss: 900   # 15 min anti revenge-trading
   reviewAboveNotionalUsd: 100     # human confirms anything above $100
