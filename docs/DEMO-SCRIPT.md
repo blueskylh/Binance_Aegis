@@ -98,7 +98,7 @@ aegis check --category trade --venue spot --symbol BTCUSDT --side BUY --quoteQua
 npm test
 ```
 
-> "211 tests. Zero runtime dependencies. Built test-first.
+> "333 tests. Zero runtime dependencies. Built test-first.
 >
 > Binance gave agents power. Aegis gives you control."
 
