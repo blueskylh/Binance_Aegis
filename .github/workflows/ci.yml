@@ -45,6 +45,9 @@ jobs:
           node --test dist/test/self-audit.test.js
           node --test dist/test/sizing.test.js
 
+      - name: FINAL GATE — judged action must equal wire action
+        run: node --test dist/test/final-gate.test.js
+
       - name: Unsupported venues must be refused, never rerouted
         run: |
           export AEGIS_HOME="$(mktemp -d)"
