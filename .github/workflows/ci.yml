@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test on Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: ['22', '24']
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+
+      - name: Install (build tooling only — Aegis has zero runtime dependencies)
+        run: npm install --no-audit --no-fund
+
+      - name: Type-check and build
+        run: npm run build
+
+      - name: Unit + end-to-end tests
+        run: node --test "dist/test/**/*.test.js"
+
+      - name: Demo scenario must behave exactly as specified
+        run: node dist/src/demo/scenario.js
+
+      - name: Every shipped policy must validate
+        run: |
+          for f in policies/*.yaml; do
+            node dist/src/cli/main.js policy validate "$f"
+          done
+
+      - name: Ledger verification round-trip
+        run: |
+          export AEGIS_HOME="$(mktemp -d)"
+          node dist/src/cli/main.js -p policies/balanced.yaml check \
+            '{"category":"read","venue":"market-data","symbol":"BTCUSDT"}'
+          node dist/src/cli/main.js ledger verify
+
+      - name: Confirm zero runtime dependencies
+        run: |
+          DEPS=$(node -p "Object.keys(require('./package.json').dependencies || {}).length")
+          echo "runtime dependencies: $DEPS"
+          test "$DEPS" -eq 0
+
+  docker:
+    name: Docker image builds
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image (tests run inside the build stage)
+        run: docker build -t aegis:ci .
+      - name: Run the demo from the image
+        run: docker run --rm aegis:ci demo

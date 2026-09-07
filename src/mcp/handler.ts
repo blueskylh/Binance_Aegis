@@ -1,0 +1,286 @@
+/**
+ * MCP request handler — pure request → response, no transport concerns.
+ *
+ * Splitting the protocol logic from stdio is what makes the server testable
+ * without spawning a process, and it is why every branch below is covered.
+ *
+ * Aegis speaks MCP because that is how it slots into Binance Agent OS: the agent
+ * keeps the Binance MCP server for execution and adds Aegis as a second server
+ * for authorization. Two servers, one rule — nothing reaches Binance until
+ * `aegis_guard_action` says `allow`.
+ */
+
+import type { Aegis } from '../aegis.js';
+import type { ProposedAction } from '../types.js';
+
+export const PROTOCOL_VERSION = '2024-11-05';
+export const SERVER_NAME = 'aegis';
+export const SERVER_VERSION = '1.0.0';
+
+export interface JsonRpcRequest {
+  jsonrpc?: string;
+  id?: number | string | null;
+  method?: string;
+  params?: unknown;
+}
+
+export interface JsonRpcResponse {
+  jsonrpc: '2.0';
+  id: number | string | null;
+  result?: unknown;
+  error?: { code: number; message: string; data?: unknown };
+}
+
+interface ToolDef {
+  name: string;
+  description: string;
+  inputSchema: Record<string, unknown>;
+}
+
+const ACTION_SCHEMA: Record<string, unknown> = {
+  type: 'object',
+  properties: {
+    id: { type: 'string', description: 'Stable id for this proposal. Reused ids are rejected as replays.' },
+    category: {
+      type: 'string',
+      enum: ['read', 'trade', 'cancel', 'transfer', 'onchain', 'withdraw'],
+      description: 'Capability class of the action.',
+    },
+    venue: {
+      type: 'string',
+      enum: ['spot', 'margin', 'futures-usds', 'futures-coin', 'convert', 'wallet', 'market-data'],
+      description: 'Where the action executes.',
+    },
+    symbol: { type: 'string', description: 'Trading pair, e.g. BTCUSDT.' },
+    asset: { type: 'string', description: 'Asset ticker for transfers, e.g. USDT.' },
+    side: { type: 'string', enum: ['BUY', 'SELL'] },
+    orderType: { type: 'string', enum: ['MARKET', 'LIMIT', 'STOP_MARKET', 'TAKE_PROFIT_MARKET', 'STOP_LOSS_LIMIT', 'OCO'] },
+    quantity: { type: 'number', description: 'Base-asset quantity.' },
+    price: { type: 'number', description: 'Limit price, when applicable.' },
+    quoteQuantity: { type: 'number', description: 'Quote-asset notional (quoteOrderQty).' },
+    leverage: { type: 'number' },
+    reduceOnly: { type: 'boolean', description: 'True when the order can only reduce an existing position.' },
+    hasStopLoss: { type: 'boolean', description: 'True when a protective stop is attached to this entry.' },
+    destination: { type: 'string', description: 'Destination wallet for transfers.' },
+  },
+  required: ['category', 'venue'],
+  additionalProperties: true,
+};
+
+export const TOOLS: readonly ToolDef[] = Object.freeze([
+  {
+    name: 'aegis_guard_action',
+    description:
+      'MANDATORY PRE-FLIGHT CHECK. Call this before every Binance action that places an order, moves funds or ' +
+      'changes exposure. Returns verdict "allow" (proceed), "review" (stop and ask the human to confirm) or ' +
+      '"deny" (do not proceed; relay the reason). Every call is written to a tamper-evident audit ledger.',
+    inputSchema: ACTION_SCHEMA,
+  },
+  {
+    name: 'aegis_record_execution',
+    description:
+      'Call immediately AFTER a Binance action actually executes, with the real filled notional and realized PnL. ' +
+      'This is what advances the daily budget, loss and rate-limit counters — skip it and the limits go blind.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        actionId: { type: 'string', description: 'The id returned by aegis_guard_action.' },
+        category: { type: 'string' },
+        venue: { type: 'string' },
+        symbol: { type: 'string' },
+        notionalUsd: { type: 'number', description: 'Actual filled notional in USD.' },
+        realizedPnlUsd: { type: 'number', description: 'Realized PnL in USD; negative for a loss.' },
+      },
+      required: ['actionId', 'notionalUsd'],
+      additionalProperties: true,
+    },
+  },
+  {
+    name: 'aegis_status',
+    description:
+      'Current risk posture: equity, drawdown, open exposure, budget consumption, kill-switch state and ledger head. ' +
+      'Call this when the user asks "how much room do I have left" or before planning a series of trades.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'aegis_explain_policy',
+    description:
+      'Return the active policy — limits, allowlists, guards — plus the list of rules being enforced. ' +
+      'Use it to explain to the user why something was blocked, or what would need to change to permit it.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'aegis_verify_ledger',
+    description:
+      'Cryptographically verify the audit ledger. Returns ok=false with the exact sequence number if any entry ' +
+      'was modified, deleted or reordered.',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'aegis_recent_decisions',
+    description: 'Return the most recent guard decisions from the ledger, for review or incident analysis.',
+    inputSchema: {
+      type: 'object',
+      properties: { limit: { type: 'number', description: 'How many entries to return (default 10, max 200).' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'aegis_emergency_stop',
+    description:
+      'Engage the kill-switch: halts every risk-increasing action immediately. Reads and cancels still work so ' +
+      'positions can always be closed. Use when the user says stop, halt, panic, or something looks wrong.',
+    inputSchema: {
+      type: 'object',
+      properties: { reason: { type: 'string', description: 'Why the halt was triggered.' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'aegis_resume',
+    description:
+      'Disengage the kill-switch. Only call this when the human explicitly asks to resume — never on the ' +
+      "agent's own initiative.",
+    inputSchema: {
+      type: 'object',
+      properties: { resetPeak: { type: 'boolean', description: 'Also re-baseline the drawdown breaker.' } },
+      additionalProperties: false,
+    },
+  },
+]);
+
+function ok(id: number | string | null, result: unknown): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, result };
+}
+
+function fail(id: number | string | null, code: number, message: string): JsonRpcResponse {
+  return { jsonrpc: '2.0', id, error: { code, message } };
+}
+
+function textResult(payload: unknown, isError = false): Record<string, unknown> {
+  const body: Record<string, unknown> = {
+    content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }],
+  };
+  if (isError) body['isError'] = true;
+  return body;
+}
+
+function asObject(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+/** Build a handler bound to an Aegis instance. Never throws. */
+export function createHandler(aegis: Aegis): (req: unknown) => JsonRpcResponse | null {
+  function runTool(name: string, args: Record<string, unknown>): Record<string, unknown> {
+    switch (name) {
+      case 'aegis_guard_action':
+        return textResult(aegis.guard(args as unknown as ProposedAction));
+
+      case 'aegis_record_execution': {
+        const entry = aegis.recordExecution({
+          actionId: String(args['actionId'] ?? 'unknown'),
+          category: String(args['category'] ?? 'trade'),
+          venue: String(args['venue'] ?? 'spot'),
+          symbol: args['symbol'] === undefined ? null : String(args['symbol']),
+          notionalUsd: Number(args['notionalUsd'] ?? 0),
+          realizedPnlUsd: Number(args['realizedPnlUsd'] ?? 0),
+        });
+        return textResult({ recorded: true, ledgerSeq: entry.seq, ledgerHash: entry.hash });
+      }
+
+      case 'aegis_status':
+        return textResult(aegis.status());
+
+      case 'aegis_explain_policy':
+        return textResult({
+          name: aegis.policy.name,
+          mode: aegis.policy.mode,
+          default: aegis.policy.default,
+          limits: aegis.policy.limits,
+          allow: aegis.policy.allow,
+          deny: aegis.policy.deny,
+          guards: aegis.policy.guards,
+          rules: aegis.rules(),
+        });
+
+      case 'aegis_verify_ledger':
+        return textResult(aegis.verifyLedger());
+
+      case 'aegis_recent_decisions': {
+        const raw = Number(args['limit'] ?? 10);
+        const limit = Number.isFinite(raw) ? Math.min(Math.max(Math.trunc(raw), 1), 200) : 10;
+        const decisions = aegis.ledger.byType('decision').slice(-limit);
+        return textResult({ count: decisions.length, decisions });
+      }
+
+      case 'aegis_emergency_stop': {
+        const reason = String(args['reason'] ?? 'emergency stop requested');
+        aegis.halt(reason);
+        return textResult({ killSwitch: true, reason, note: 'Reads and cancels remain available so you can flatten.' });
+      }
+
+      case 'aegis_resume': {
+        aegis.resume(args['resetPeak'] === true);
+        return textResult({ killSwitch: false, resetPeak: args['resetPeak'] === true });
+      }
+
+      default:
+        return textResult({ error: `unknown tool "${name}"`, available: TOOLS.map((t) => t.name) }, true);
+    }
+  }
+
+  return function handle(req: unknown): JsonRpcResponse | null {
+    const request = asObject(req) as JsonRpcRequest;
+    const id = request.id ?? null;
+    const method = typeof request.method === 'string' ? request.method : '';
+
+    // Notifications carry no id and must never receive a response.
+    if (method.startsWith('notifications/')) return null;
+    if (method === '') return fail(id, -32600, 'invalid request: missing method');
+
+    try {
+      switch (method) {
+        case 'initialize':
+          return ok(id, {
+            protocolVersion: PROTOCOL_VERSION,
+            capabilities: { tools: { listChanged: false } },
+            serverInfo: { name: SERVER_NAME, version: SERVER_VERSION },
+            instructions:
+              'Aegis is the risk firewall for Binance Agent OS. Call aegis_guard_action BEFORE every order, ' +
+              'transfer or exposure change, and aegis_record_execution AFTER it fills. Treat "deny" as final ' +
+              'and "review" as a hard stop pending human confirmation.',
+          });
+
+        case 'ping':
+          return ok(id, {});
+
+        case 'tools/list':
+          return ok(id, { tools: TOOLS });
+
+        case 'tools/call': {
+          const params = asObject(request.params);
+          const name = params['name'];
+          if (typeof name !== 'string' || name === '') {
+            return fail(id, -32602, 'invalid params: "name" is required');
+          }
+          return ok(id, runTool(name, asObject(params['arguments'])));
+        }
+
+        case 'resources/list':
+          return ok(id, { resources: [] });
+
+        case 'prompts/list':
+          return ok(id, { prompts: [] });
+
+        default:
+          return fail(id, -32601, `method not found: ${method}`);
+      }
+    } catch (err) {
+      // A firewall that crashes is a firewall that gets bypassed. Surface the
+      // fault as a protocol error and stay up.
+      return fail(id, -32603, `internal error: ${(err as Error).message}`);
+    }
+  };
+}

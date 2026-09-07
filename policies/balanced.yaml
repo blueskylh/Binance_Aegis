@@ -1,0 +1,32 @@
+# Aegis policy — BALANCED
+# A working default for an agent that has already proven itself in monitor mode.
+version: 1
+name: balanced-desk
+mode: enforce
+default: deny
+
+limits:
+  maxNotionalUsdPerOrder: 1000
+  maxDailyNotionalUsd: 10000
+  maxOpenNotionalUsd: 5000
+  maxLeverage: 5
+  maxDailyLossUsd: 400
+  maxDrawdownPct: 12
+  maxOrdersPerMinute: 5
+  maxOrdersPerHour: 40
+  maxPositionsOpen: 5
+
+allow:
+  categories: ["read", "trade", "cancel", "transfer"]
+  venues: ["spot", "futures-usds", "convert", "market-data", "wallet"]
+
+deny:
+  categories: ["withdraw"]
+
+guards:
+  priceDeviationPct: 8
+  minAccountEquityUsd: 100
+  requireStopLoss: true
+  cooldownSecondsAfterLoss: 300
+  reviewAboveNotionalUsd: 500
+  blockDuplicateActionIds: true

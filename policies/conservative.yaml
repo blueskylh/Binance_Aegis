@@ -1,0 +1,35 @@
+# Aegis policy — CONSERVATIVE
+# For a first live agent, or any account you would be upset to lose.
+# Small clips, tight loss budget, a human on anything meaningful.
+version: 1
+name: conservative-desk
+mode: enforce
+default: deny
+
+limits:
+  maxNotionalUsdPerOrder: 250     # one clip
+  maxDailyNotionalUsd: 1500       # total turnover per UTC day
+  maxOpenNotionalUsd: 750         # aggregate open exposure
+  maxLeverage: 2
+  maxDailyLossUsd: 75             # realized-loss circuit breaker
+  maxDrawdownPct: 5               # peak-to-trough equity breaker
+  maxOrdersPerMinute: 2
+  maxOrdersPerHour: 12
+  maxPositionsOpen: 2
+
+allow:
+  categories: ["read", "trade", "cancel"]
+  venues: ["spot", "market-data"]
+  symbols: ["BTCUSDT", "ETHUSDT", "BNBUSDT"]
+
+deny:
+  categories: ["withdraw", "onchain", "transfer"]
+
+guards:
+  priceDeviationPct: 3            # fat-finger / hallucinated-price tolerance
+  minAccountEquityUsd: 200
+  requireStopLoss: true
+  tradingHoursUtc: { from: "06:00", to: "22:00" }
+  cooldownSecondsAfterLoss: 900   # 15 min anti revenge-trading
+  reviewAboveNotionalUsd: 100     # human confirms anything above $100
+  blockDuplicateActionIds: true

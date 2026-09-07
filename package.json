@@ -1,0 +1,55 @@
+{
+  "name": "@aegis/agent-os-firewall",
+  "version": "1.0.0",
+  "description": "Aegis — the deterministic risk firewall and tamper-evident audit ledger for Binance Agent OS. Every AI agent action is evaluated against a declarative policy before it reaches Binance, and hash-chained into an append-only ledger.",
+  "type": "module",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "aegis": "./dist/src/cli/main.js"
+  },
+  "main": "./dist/src/index.js",
+  "exports": {
+    ".": "./dist/src/index.js",
+    "./engine": "./dist/src/core/engine.js",
+    "./policy": "./dist/src/policy/schema.js"
+  },
+  "files": [
+    "dist",
+    "policies",
+    "skill",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "clean": "rm -rf dist",
+    "test": "npm run build && node --test \"dist/test/**/*.test.js\"",
+    "test:only": "node --test \"dist/test/**/*.test.js\"",
+    "demo": "npm run build && node dist/src/demo/scenario.js",
+    "mcp": "npm run build && node dist/src/mcp/server.js",
+    "guardian": "npm run build && node dist/src/guardian/run.js",
+    "aegis": "npm run build && node dist/src/cli/main.js",
+    "verify": "npm run build && node --test \"dist/test/**/*.test.js\" && node dist/src/demo/scenario.js --quiet && echo '\\n✅ VERIFY PASSED'",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "binance",
+    "agent-os",
+    "mcp",
+    "ai-agent",
+    "risk-management",
+    "policy-engine",
+    "trading",
+    "guardrails",
+    "audit-log",
+    "hackathon"
+  ],
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "@types/node": "22.10.2"
+  },
+  "dependencies": {}
+}

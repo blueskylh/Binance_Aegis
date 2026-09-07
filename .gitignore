@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.env
+.env.local
+.aegis/
+ledger.jsonl
+state.json
+.DS_Store
+*.tsbuildinfo

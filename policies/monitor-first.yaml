@@ -1,0 +1,37 @@
+# Aegis policy — MONITOR FIRST
+#
+# Start here. `mode: monitor` blocks nothing outright: every violation is
+# downgraded to "review" and written to the ledger, so you can watch what your
+# agent WOULD have done for a few days before switching mode to `enforce`.
+#
+# Run `aegis ledger tail 50` after a session to see what the limits caught.
+version: 1
+name: monitor-first
+mode: monitor
+default: deny
+
+limits:
+  maxNotionalUsdPerOrder: 500
+  maxDailyNotionalUsd: 5000
+  maxOpenNotionalUsd: 2000
+  maxLeverage: 5
+  maxDailyLossUsd: 250
+  maxDrawdownPct: 10
+  maxOrdersPerMinute: 5
+  maxOrdersPerHour: 30
+  maxPositionsOpen: 4
+
+allow:
+  categories: ["read", "trade", "cancel", "transfer"]
+  venues: ["spot", "futures-usds", "convert", "market-data", "wallet"]
+
+deny:
+  categories: ["withdraw"]
+
+guards:
+  priceDeviationPct: 10
+  minAccountEquityUsd: 50
+  requireStopLoss: true
+  cooldownSecondsAfterLoss: 180
+  reviewAboveNotionalUsd: 200
+  blockDuplicateActionIds: true
