@@ -106,10 +106,12 @@ jobs:
           echo "rules: $COUNT"
           test "$COUNT" -eq 23
 
-      - name: Every shipped policy must validate
+      - name: Every shipped policy must validate AND enable the new guards
         run: |
           for f in policies/*.yaml; do
             node dist/src/cli/main.js policy validate "$f"
+            grep -q maxPositionSnapshotAgeSec "$f" || { echo "$f missing maxPositionSnapshotAgeSec"; exit 1; }
+            grep -q maxStopDistancePct "$f"      || { echo "$f missing maxStopDistancePct"; exit 1; }
           done
 
       - name: Ledger verification round-trip

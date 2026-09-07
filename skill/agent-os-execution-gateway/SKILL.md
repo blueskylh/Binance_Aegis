@@ -10,7 +10,7 @@ description: |
   trail", "why was this blocked", "approve that trade", "what's waiting for approval", "position limits",
   "guardrails", "risk policy", "风控", "限额", "紧急停止", "审计", "审批".
 metadata:
-  version: 2.1.0
+  version: 2.2.0
   author: aegis
   openclaw:
     requires:

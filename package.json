@@ -1,6 +1,6 @@
 {
   "name": "@aegis/agent-os-firewall",
-  "version": "2.1.0",
+  "version": "2.2.0",
   "description": "Aegis \u2014 the deterministic risk firewall and tamper-evident audit ledger for Binance Agent OS. Every AI agent action is evaluated against a declarative policy before it reaches Binance, and hash-chained into an append-only ledger.",
   "type": "module",
   "license": "MIT",

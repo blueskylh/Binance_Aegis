@@ -1,7 +1,7 @@
 # Submission — Binance Agent OS Mini Hackathon, Track A
 
 **Project:** Aegis — the execution control plane for Binance Agent OS
-**Track:** A — Build an AI agent with Agent OS · **License:** MIT · **Version:** 2.1.0
+**Track:** A — Build an AI agent with Agent OS · **License:** MIT · **Version:** 2.2.0
 
 ---
 

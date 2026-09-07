@@ -6,4 +6,4 @@
  * `1.0.0`. Not a security issue, but for a release that is largely *about*
  * rigour it reads badly. One constant, imported everywhere.
  */
-export const VERSION = '2.1.0';
+export const VERSION = '2.2.0';
