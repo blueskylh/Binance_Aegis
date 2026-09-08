@@ -1,189 +1,286 @@
 # Architecture
 
-## The one-sentence version
+## One sentence
 
-`evaluate(action, policy, context) → decision` is a pure function; everything else in this
-repository exists to feed it good inputs, to make its outputs hard to forge, and to ensure
-nothing reaches Binance without passing through it.
+`evaluate(action, policy, context) → decision` is a pure deterministic function; the rest of Aegis exists to feed it trustworthy inputs, preserve evidence, and ensure that in gateway mode nothing reaches Binance without passing through that decision.
 
 ---
 
 ## Layering
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────────┐
-│  Integrations        CLI  ·  MCP server  ·  Guardian daemon          │
+│ Integrations       CLI · MCP server · Guardian                     │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Gateway             the enforced write path + approval tickets      │
+│ Execution Gateway  only supported write path · approvals · fills    │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Facade              Aegis  (orchestration, one place)               │
+│ Aegis facade       orchestration                                    │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Engine (pure)       normalize → 23 rules → aggregate → mode         │
+│ Pure engine        normalize → 23 rules → aggregate → mode           │
 ├──────────────────────────────────────────────────────────────────────┤
-│  Evidence            Ledger (hash chain)  ·  RiskStore (counters)    │
+│ Evidence           Ledger · RiskStore · approval / in-flight state   │
 ├──────────────────────────────────────────────────────────────────────┤
-│  World               BinanceAdapter (read-only, via binance-cli)     │
+│ Binance adapter    market/account reads + supported order execution  │
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-Every integration is a thin shell over the same `Aegis` facade. The CLI command and the MCP tool
-cannot enforce subtly different things, because they call the same method.
+All front doors share the same core policy engine. The CLI, MCP server and gateway do not implement separate risk logic.
 
 ---
 
 ## Why the engine is pure
 
-`evaluate` performs no I/O, reads no clock and mutates neither the policy nor the context it is
-given. `now` is injected through `RiskContext`.
+The policy engine performs no I/O, reads no wall clock directly, and does not mutate its inputs. Time and account state are injected through the risk context.
 
-Three consequences:
+That gives Aegis three useful properties:
 
-1. **Reproducibility.** Any decision in the ledger can be re-evaluated years later and reach the
-   same verdict. Auditability is not a feature bolted on; it falls out of the design.
-2. **Testability.** 333 tests run with no mocks, no fake timers and no network.
-3. **No hidden state.** A rule cannot accumulate anything between calls, so it cannot drift.
+1. **Reproducibility** — a decision can be re-evaluated from the same action, policy and context.
+2. **Testability** — the rule engine can be exercised without network calls or exchange credentials.
+3. **No hidden rule state** — limits cannot drift because a rule secretly accumulated state between calls.
 
 ---
 
-## Normalization: one notional to rule them all
+## Normalization: one executable interpretation
 
-Agents express the same intent many ways — `quoteOrderQty: 250`, `quantity: 0.0025 @ 100000`,
-`quantity: 0.0025` at market. A limit is meaningless until all of those collapse to one comparable
-USD number, so normalization runs before any rule.
+Agents can express an order size in several ways. A risk limit is meaningless if one layer believes `quoteQuantity` while another layer sends `quantity`.
 
-Precedence: `quoteQuantity` → `quantity × price` → `quantity × mark` → asset amount × mark
-(stablecoins at par).
+Aegis therefore normalizes before policy evaluation and refuses ambiguous sizing.
 
-**It fails closed.** An action that cannot be sized confidently raises, and the engine converts that
-into a `deny` with a `malformed-action` finding. A firewall that guesses is not a firewall.
+Important invariants include:
 
----
+- `quantity` and `quoteQuantity` cannot both describe the same trade.
+- MARKET orders using base quantity are valued from a trusted market mark, not a caller-supplied fake price.
+- LIMIT orders use the actual limit price.
+- Derivatives quote-sized orders resolve the base quantity before execution.
+- Before returning from normalization, the judged notional must remain consistent with the executable quantity and reference price.
 
-## Rule design
-
-Every rule has the signature `(action, policy, context) → Finding[]`. Returning an array rather than
-a boolean means one rule can report several distinct problems, and the caller sees *all* violations
-rather than the first.
-
-Verdicts aggregate by taking the most restrictive: `deny` > `review` > `allow`. Order-independent,
-so the registry can be reordered for readability without changing behaviour.
-
-### Invariant 1 — the exit is never blocked
-
-Every breaker exempts `isRiskReducing(action)`: cancels, reduce-only orders, `STOP_MARKET` and
-`TAKE_PROFIT_MARKET`. A risk system that traps you in a position *is* the risk.
-
-This one caught a real bug during development: the rate limiter originally exempted only reads and
-cancels, so a reduce-only exit could be throttled during exactly the fast market where you need it.
-Fixed at root cause; three regression tests guard it.
-
-### Invariant 2 — fail closed
-
-- Malformed action → `deny`
-- Unparseable policy → refuse to start
-- Unknown policy key → hard error (a typo'd `maxLevrage:` must never mean "no limit")
-- Rule throws → `deny` with an `:internal-error` finding, and the engine keeps going
-
-### Invariant 3 — prospective, not retrospective
-
-Limits ask *"what would exposure be if this executed"*, never *"what is it now"*. Retrospective
-limits are how accounts blow through their own caps.
+If Aegis cannot size an action confidently, it fails closed.
 
 ---
 
-## Policy modes
+## Rule model
 
-| Mode | Behaviour | Use when |
-|---|---|---|
-| `enforce` | The verdict stands | Production |
-| `monitor` | `deny` → `review`; nothing hard-blocked | Rolling out a new policy over live flow |
-| `simulate` | Everything → `allow`, findings still reported | Tuning limits against historical flow |
+Each rule has the shape:
 
-The kill-switch is exempt from all three. An operator halt that a config flag could soften would not
-be a halt.
-
----
-
-## The ledger
-
-```
-hash(n) = SHA-256( hash(n-1) ‖ canonicalJSON(seq, ts, type, payload) )
-genesis = SHA-256("aegis-ledger-genesis-v1")
+```text
+(action, policy, context) → Finding[]
 ```
 
-`canonicalJSON` sorts keys recursively — `JSON.stringify` preserves insertion order, so two
-structurally identical payloads could otherwise hash differently and defeat independent verification.
+Returning findings instead of a boolean means the caller can see every violated constraint rather than only the first one.
 
-`verify()` recomputes the whole chain and reports the first divergence with its sequence number,
-distinguishing three tamper classes: a mutated payload (hash mismatch), a deleted or reordered entry
-(sequence gap), and a forged append (broken link).
+Verdicts aggregate by severity:
 
-**Why JSONL, not a database:** greppable, diffable, shippable to S3 or a SIEM with `cat`, and a crash
-costs at worst one partial trailing line — which the reader stops cleanly at rather than discarding
-an otherwise valid history. Appends are synchronous: an audit record that *might* have been written
-is worse than a few milliseconds of latency.
+```text
+DENY > REVIEW > ALLOW
+```
+
+The engine currently registers 23 deterministic rules covering access, size, loss, tempo, order integrity and human escalation.
 
 ---
 
-## State: derived, never incremented
+## Core invariants
 
-Rolling counters — daily notional, realized PnL, order tempo, replay ids — are **recomputed from
-ledger executions on every read**, never incremented in place.
+### 1. Verified exits remain available
 
-Counters that drift are counters that lie, and a limit computed from a lying counter is not a limit.
-The cost is an O(n) scan per evaluation; at realistic agent volumes that is microseconds, and it buys
-exact restart semantics for free.
+Risk-reducing actions are not trusted merely because the caller says `reduceOnly`. Aegis verifies the claim against position direction, size and snapshot freshness.
 
-The state file holds only the account snapshot, the equity high-water mark and the kill-switch —
-small, atomically written (temp + rename), and safe to lose: everything but the peak can be re-fetched.
+Once an action is verified as genuinely risk-reducing, breakers such as kill-switch, daily loss, drawdown, cooldown, rate limits, size caps and review thresholds stand aside.
+
+The purpose is simple: a risk system must not trap the operator inside a position.
+
+### 2. Fail closed
+
+Examples:
+
+- malformed action → deny
+- unknown policy key → refuse policy
+- unsupported gateway capability → deny
+- stale evidence → refuse the exemption
+- unresolved execution quantity → deny
+- lock / concurrency failure → refuse rather than continue
+
+### 3. Prospective controls
+
+Limits ask what account state would become **if this action executed**, not merely what the account looks like before the action.
+
+### 4. Judged action equals wire action
+
+This is the final execution-boundary property.
+
+The sizing, venue and order semantics evaluated by the policy engine must be the same ones delivered to the execution adapter. Regression tests attack this property directly across the sizing input space.
 
 ---
 
-## The Binance adapter
+## Gateway mode vs advisory mode
 
-Read-only by contract. Aegis authorizes; it never places orders. The single exception is
-`cancelAllOpenOrders`, which only reduces risk and is what makes the guardian's breaker meaningful.
+### Gateway mode
 
-Reads go through `binance-cli` — the official Agent OS CLI — rather than a hand-rolled REST client,
-so auth, signing and endpoint drift stay Binance's problem. `execFile` without a shell means no
-interpolation surface.
+```text
+Agent ──▶ Aegis ──▶ Binance
+```
 
-Every call degrades gracefully: if the CLI is missing or unauthenticated, Aegis keeps enforcing on
-its last known snapshot instead of failing open.
+The agent has no independent Binance write tool. Aegis holds the execution capability and becomes the only write path.
+
+This is the enforced deployment model.
+
+### Advisory mode
+
+```text
+Agent ──▶ Aegis
+     └──▶ Binance
+```
+
+If the agent also has a direct Binance write tool, Aegis can only advise. A prompt-injected or buggy agent may bypass the check entirely.
+
+This distinction is architectural, not cosmetic.
 
 ---
 
-## The guardian
+## Execution gateway
 
-The engine judges one action; the guardian judges the whole account on a timer. That is how you catch
-risk arriving with no agent action at all — a position moving against you while the agent is idle.
+The gateway performs the sequence that must remain atomic from the safety model's perspective:
 
-`assessBreakers` is pure, so the daemon's decision logic is testable without a network or a clock.
-It is **edge-triggered**: once the kill-switch is engaged it reports nothing, so a breached account
-halts once rather than spamming the ledger every poll.
+```text
+proposal
+  ↓
+reserve action id
+  ↓
+refresh relevant account / market evidence
+  ↓
+normalize
+  ↓
+policy decision
+  ↓
+ALLOW ──▶ dispatch supported order
+REVIEW ─▶ durable approval ticket
+DENY ───▶ nothing sent
+  ↓
+reconcile real execution status / fill
+  ↓
+record evidence
+```
 
-It **refuses to act on stale data**. A transient CLI failure returning zero equity would otherwise
-look like a 100% drawdown and trip every breaker simultaneously — the classic monitoring own-goal.
-On a degraded read the snapshot is held and breakers are skipped for that cycle.
+Gateway capabilities are deliberately narrow. Current live order execution covers:
+
+- Spot
+- USD-M Futures
+
+Unsupported venues are denied and never silently rerouted.
+
+For leveraged risk-increasing entries, Aegis restricts execution to order types it can reconcile synchronously. Partial fills cancel the unreconciled remainder.
+
+---
+
+## Human approval
+
+A `REVIEW` verdict creates a durable approval ticket rather than sending an order.
+
+Tickets are:
+
+- persisted across processes
+- single-use
+- digest-bound to the original action
+- re-evaluated when redeemed
+- protected by action-level in-flight reservation
+
+This means approval is consent, not a bypass. If account state changes or a kill-switch is engaged after the ticket is created, the redeemed action can still be refused.
+
+---
+
+## Binance adapter
+
+The adapter is the exchange-facing boundary used by the gateway and guardian.
+
+It provides:
+
+- market marks
+- account equity / position snapshots
+- supported Spot and USD-M order placement
+- protective stop placement where supported
+- cancellation used by the gateway / guardian for risk reduction
+
+The adapter uses `execFile` without a shell, avoiding string interpolation through a shell command surface.
+
+A key design rule is that the adapter must not reinterpret an action after policy evaluation. Resolved execution quantity is passed through rather than re-derived downstream.
+
+---
+
+## Fill reconciliation
+
+Requested size is not treated as executed size.
+
+The gateway distinguishes statuses such as:
+
+- filled
+- partially filled
+- resting / accepted-unfilled
+- rejected / failed
+
+Budgets and counters move from actual execution evidence. Missing fill data never means “assume the request filled.”
+
+---
+
+## Protective stops
+
+For supported leveraged entries, the agent must provide a concrete `stopPrice`. A bare boolean such as `hasStopLoss: true` is not evidence.
+
+The stop is checked for direction and sane distance. After an entry fill, Aegis places the protective stop using the actual filled quantity.
+
+A current limitation remains documented: later stop fills are not reconciled back into realized PnL by a dedicated lifecycle daemon.
+
+---
+
+## Audit ledger
+
+Every decision is appended as one JSON object per line and chained to its predecessor.
+
+```text
+hash(n) = H(hash(n-1) || canonicalJSON(entry_n))
+```
+
+`canonicalJSON` sorts keys recursively so independent verification produces the same digest.
+
+The unkeyed mode is **tamper-evident**, not tamper-proof. With `AEGIS_LEDGER_KEY`, the chain uses HMAC so recomputing a forged history also requires the operator-held key.
+
+---
+
+## State
+
+Aegis persists only the state that needs to survive process boundaries:
+
+- account snapshot / marks
+- equity high-water mark
+- kill-switch
+- approval tickets
+- in-flight reservations
+- audit ledger
+
+Rolling counters are derived from recorded executions rather than blindly incremented from agent claims.
+
+---
+
+## Guardian
+
+The policy engine evaluates one proposed action. The guardian evaluates the wider account on a timer.
+
+It can trip the kill-switch and cancel resting orders when configured breakers fire. It does not blindly flatten positions.
+
+Stale account data is treated explicitly; unavailable evidence is not converted into a fabricated zero-equity state.
 
 ---
 
 ## MCP
 
-Protocol logic (`mcp/handler.ts`) is split from transport (`mcp/server.ts`). The handler is a pure
-`request → response` function, which is why every branch is covered without spawning a process; the
-E2E suite then spawns the real server and drives it over real stdio.
+The MCP transport is intentionally thin. Tool calls reach the same Aegis facade and execution gateway used by the CLI.
 
-stdout carries protocol frames only. Every diagnostic goes to stderr, because one stray
-`console.log` corrupts an MCP session.
+In gateway mode the important tool is `aegis_execute`: the agent proposes an action and receives a status such as executed, pending approval, blocked or failed.
+
+The deployment requirement is critical: do not simultaneously expose a separate Binance write MCP to the same agent if you expect gateway enforcement.
 
 ---
 
 ## Dependencies
 
-Zero at runtime, including the YAML parser. A security control plane should not drag a supply chain
-behind it — the whole point is to reduce the number of things that must be trusted.
+Aegis has zero runtime dependencies, including its strict YAML subset parser.
 
-The parser implements a deliberately small, strict subset and raises `YamlError` with a line number
-on anything outside it. For a risk policy, a loud parse failure is strictly safer than a quiet misread
-limit.
+TypeScript is compiled with strict settings, and the test suite includes unit tests, real-process CLI/MCP E2E, security regressions, gateway hardening, sizing sweeps and the final judged-action-equals-wire-action gate.
