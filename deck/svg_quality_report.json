@@ -1,0 +1,731 @@
+{
+  "schema": "ppt-master.svg-quality-report.v1",
+  "stage": "final",
+  "target": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis",
+  "source_fingerprint": {
+    "algorithm": "sha256",
+    "digest": "d7bdf48164c0751e8164e472d3b4b71ed6a815ef47dea0b415be991bca69fb9b",
+    "file_count": 10,
+    "files": [
+      {
+        "file": "P01.svg",
+        "sha256": "ec45cfb4f1c19c60d32395ef4309ae0b79c4080bf07d0b1a22f07f93c2fc200b"
+      },
+      {
+        "file": "P02.svg",
+        "sha256": "8ce35acf614e25a3199a997aa7e0857fd7bb8c66b2bab28807ff598a607da31b"
+      },
+      {
+        "file": "P03.svg",
+        "sha256": "a0451deee755986211628dc5ff0e9e63aa3ed526405b4908a89bc0c413fe4b91"
+      },
+      {
+        "file": "P04.svg",
+        "sha256": "cf1fb2376ab9d08213dd92cba435b04b574aafb1e5f07abb4d00277f83aacb98"
+      },
+      {
+        "file": "P05.svg",
+        "sha256": "88f2e3daccefa548c7a2a29fd1e9e315c50496ef5aeec9d70243281be3aa20dd"
+      },
+      {
+        "file": "P06.svg",
+        "sha256": "61ac5ff950ed75c5cbac09a5468e8268e22521390d2f83f9f137e92f9ba638f7"
+      },
+      {
+        "file": "P07.svg",
+        "sha256": "86095a50b7eff581f72d02a082de9c944aa2d3852606ba8dcb89a34c1285c403"
+      },
+      {
+        "file": "P08.svg",
+        "sha256": "2d9b43c9cd558a518bbe921050a67a3b4b52c8513894c039f84fa704e6ea70dd"
+      },
+      {
+        "file": "P09.svg",
+        "sha256": "df80c589db9c815947783cd015694be4725bb187d05af64e9ab6b4b05c09dfd5"
+      },
+      {
+        "file": "P10.svg",
+        "sha256": "0a383cd996dd305f51dfa171a8cd4a3e62c5a02ff3167e58a34fa0e2b72cd3d8"
+      }
+    ]
+  },
+  "summary": {
+    "total": 10,
+    "passed": 10,
+    "warnings": 0,
+    "errors": 0
+  },
+  "issue_types": {},
+  "categories": {
+    "blocking": {
+      "count": 0,
+      "issues": []
+    },
+    "introduced": {
+      "count": 0,
+      "issues": []
+    },
+    "inherited": {
+      "count": 0,
+      "issues": []
+    },
+    "source-import": {
+      "count": 0,
+      "summary": {
+        "warning_count": 0,
+        "by_code": {}
+      }
+    }
+  },
+  "drift": {
+    "colors": {},
+    "fonts": {},
+    "sizes": {}
+  },
+  "carrier_receipt": {
+    "scope": "informational-not-a-quota",
+    "pages": 10,
+    "totals": {
+      "text_elements": 192,
+      "image_placements": 0,
+      "icons": 0,
+      "svg_geometry_elements": 406,
+      "preset_shapes": 0,
+      "page_frame_elements": 294,
+      "marker_uses": 6,
+      "inline_emphasis_runs": 7,
+      "gradient_uses": 22,
+      "filter_uses": 7,
+      "text_effects": 0
+    },
+    "pages_with": {
+      "images": 0,
+      "icons": 0,
+      "presets": 0,
+      "charts": 0,
+      "tables": 0,
+      "formulas": 0,
+      "inline_emphasis_runs": 4,
+      "gradient_uses": 10,
+      "filter_uses": 3,
+      "text_effects": 0
+    },
+    "geometry_elements": {
+      "circle": 28,
+      "ellipse": 0,
+      "line": 302,
+      "path": 0,
+      "polygon": 0,
+      "polyline": 0,
+      "rect": 76
+    },
+    "preset_names": {},
+    "native_objects": {
+      "chart": 0,
+      "formula_block": 0,
+      "formula_inline": 0,
+      "other": 0,
+      "table": 0
+    },
+    "image_page_max_frame_share_range": []
+  },
+  "project_issues": {
+    "template": [],
+    "animation": [],
+    "illustration": [],
+    "communication_trace": [],
+    "pptx_structure": []
+  },
+  "files": [
+    {
+      "file": "P01.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P01.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 14,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 3,
+            "filter_uses": 2,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 3,
+              "circle": 8,
+              "ellipse": 0,
+              "line": 32,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 37,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 14,
+        "tspan_elements": 1
+      },
+      "passed": true,
+      "source_sha256": "ec45cfb4f1c19c60d32395ef4309ae0b79c4080bf07d0b1a22f07f93c2fc200b"
+    },
+    {
+      "file": "P02.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P02.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 16,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 2,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 6,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 29,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 16,
+        "tspan_elements": 2
+      },
+      "passed": true,
+      "source_sha256": "8ce35acf614e25a3199a997aa7e0857fd7bb8c66b2bab28807ff598a607da31b"
+    },
+    {
+      "file": "P03.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P03.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 17,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 8,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 30,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 17,
+        "tspan_elements": 2
+      },
+      "passed": true,
+      "source_sha256": "a0451deee755986211628dc5ff0e9e63aa3ed526405b4908a89bc0c413fe4b91"
+    },
+    {
+      "file": "P04.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P04.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 23,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 8,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 30,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 2
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 23,
+        "tspan_elements": 3
+      },
+      "passed": true,
+      "source_sha256": "cf1fb2376ab9d08213dd92cba435b04b574aafb1e5f07abb4d00277f83aacb98"
+    },
+    {
+      "file": "P05.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P05.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 19,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 8,
+              "circle": 3,
+              "ellipse": 0,
+              "line": 31,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 19,
+        "tspan_elements": 8
+      },
+      "passed": true,
+      "source_sha256": "88f2e3daccefa548c7a2a29fd1e9e315c50496ef5aeec9d70243281be3aa20dd"
+    },
+    {
+      "file": "P06.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P06.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 23,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 1,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 15,
+              "circle": 6,
+              "ellipse": 0,
+              "line": 28,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 23,
+        "tspan_elements": 1
+      },
+      "passed": true,
+      "source_sha256": "61ac5ff950ed75c5cbac09a5468e8268e22521390d2f83f9f137e92f9ba638f7"
+    },
+    {
+      "file": "P07.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P07.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 24,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 2,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 10,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 33,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 4
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 24,
+        "tspan_elements": 3
+      },
+      "passed": true,
+      "source_sha256": "86095a50b7eff581f72d02a082de9c944aa2d3852606ba8dcb89a34c1285c403"
+    },
+    {
+      "file": "P08.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P08.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 24,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 2,
+            "filter_uses": 0,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 10,
+              "circle": 0,
+              "ellipse": 0,
+              "line": 32,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 28,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 24,
+        "tspan_elements": 0
+      },
+      "passed": true,
+      "source_sha256": "2d9b43c9cd558a518bbe921050a67a3b4b52c8513894c039f84fa704e6ea70dd"
+    },
+    {
+      "file": "P09.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P09.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 21,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 2,
+            "gradient_uses": 2,
+            "filter_uses": 4,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 3,
+              "circle": 8,
+              "ellipse": 0,
+              "line": 29,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 29,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 21,
+        "tspan_elements": 2
+      },
+      "passed": true,
+      "source_sha256": "df80c589db9c815947783cd015694be4725bb187d05af64e9ab6b4b05c09dfd5"
+    },
+    {
+      "file": "P10.svg",
+      "path": "/workspaces/eadb948e-6b1f-4f96-bc92-cb6a850307b8/sessions/20260907_091525_345df0e8-2c6a-47ab-ad68-af59c5872394/build/ppt-aegis/svg_output/P10.svg",
+      "exists": true,
+      "errors": [],
+      "warnings": [],
+      "info": {
+        "viewbox": "0 0 1280 720",
+        "carrier_receipt": {
+          "text_elements": 11,
+          "images": {
+            "placements": 0,
+            "files": [],
+            "max_frame_share": 0.0
+          },
+          "icons": 0,
+          "effects": {
+            "inline_emphasis_runs": 0,
+            "gradient_uses": 3,
+            "filter_uses": 1,
+            "text_effects": 0
+          },
+          "geometry": {
+            "svg_elements": {
+              "rect": 5,
+              "circle": 3,
+              "ellipse": 0,
+              "line": 28,
+              "polyline": 0,
+              "polygon": 0,
+              "path": 0
+            },
+            "preset_shapes": 0,
+            "preset_names": {},
+            "page_frame_elements": 32,
+            "marker_uses": {
+              "start": 0,
+              "mid": 0,
+              "end": 0
+            }
+          },
+          "native_objects": {
+            "chart": 0,
+            "table": 0,
+            "formula_block": 0,
+            "formula_inline": 0,
+            "other": 0
+          }
+        },
+        "fonts": [
+          "Consolas, Microsoft YaHei, monospace",
+          "Microsoft YaHei, Arial, sans-serif"
+        ],
+        "text_elements": 11,
+        "tspan_elements": 0
+      },
+      "passed": true,
+      "source_sha256": "0a383cd996dd305f51dfa171a8cd4a3e62c5a02ff3167e58a34fa0e2b72cd3d8"
+    }
+  ]
+}

@@ -1,0 +1,91 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 720" width="1280" height="720" data-pptx-page-role="ending" font-family="Consolas, Microsoft YaHei, monospace">
+  <defs>
+    <linearGradient id="goldGrad" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#F0B90B" />
+      <stop offset="1" stop-color="#22D3EE" />
+    </linearGradient>
+    <linearGradient id="fieldGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#0C1424" />
+      <stop offset="1" stop-color="#070B14" />
+    </linearGradient>
+    <linearGradient id="scrim" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#070B14" stop-opacity="0" />
+      <stop offset="1" stop-color="#070B14" stop-opacity="0.92" />
+    </linearGradient>
+    <filter id="glow" x="-60%" y="-60%" width="220%" height="220%">
+      <feGaussianBlur stdDeviation="14" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <filter id="softGlow" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="6" result="b" />
+      <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
+    </filter>
+    <marker id="arrowGold" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10" fill="none" stroke="#F0B90B" stroke-width="2" />
+    </marker>
+    <marker id="arrowMut" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10" fill="none" stroke="#8A99B8" stroke-width="2" />
+    </marker>
+    <marker id="arrowRed" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10" fill="none" stroke="#F0616D" stroke-width="2" />
+    </marker>
+  </defs>
+  <rect id="bg" data-pptx-role="background" x="0" y="0" width="1280" height="720" fill="url(#fieldGrad)" />
+  <g id="grid" data-pptx-role="decoration" data-pptx-bounds="0 0 1280 720" stroke="#22D3EE" stroke-width="1" stroke-opacity="0.055">
+    <line x1="0" y1="0" x2="0" y2="720" />
+    <line x1="80" y1="0" x2="80" y2="720" />
+    <line x1="160" y1="0" x2="160" y2="720" />
+    <line x1="240" y1="0" x2="240" y2="720" />
+    <line x1="320" y1="0" x2="320" y2="720" />
+    <line x1="400" y1="0" x2="400" y2="720" />
+    <line x1="480" y1="0" x2="480" y2="720" />
+    <line x1="560" y1="0" x2="560" y2="720" />
+    <line x1="640" y1="0" x2="640" y2="720" />
+    <line x1="720" y1="0" x2="720" y2="720" />
+    <line x1="800" y1="0" x2="800" y2="720" />
+    <line x1="880" y1="0" x2="880" y2="720" />
+    <line x1="960" y1="0" x2="960" y2="720" />
+    <line x1="1040" y1="0" x2="1040" y2="720" />
+    <line x1="1120" y1="0" x2="1120" y2="720" />
+    <line x1="1200" y1="0" x2="1200" y2="720" />
+    <line x1="1280" y1="0" x2="1280" y2="720" />
+    <line x1="0" y1="0" x2="1280" y2="0" />
+    <line x1="0" y1="80" x2="1280" y2="80" />
+    <line x1="0" y1="160" x2="1280" y2="160" />
+    <line x1="0" y1="240" x2="1280" y2="240" />
+    <line x1="0" y1="320" x2="1280" y2="320" />
+    <line x1="0" y1="400" x2="1280" y2="400" />
+    <line x1="0" y1="480" x2="1280" y2="480" />
+    <line x1="0" y1="560" x2="1280" y2="560" />
+    <line x1="0" y1="640" x2="1280" y2="640" />
+    <line x1="0" y1="720" x2="1280" y2="720" />
+  </g>
+  <rect id="scrimr" data-pptx-role="decoration" x="0" y="360" width="1280" height="360" fill="url(#scrim)" />
+  <g id="rings" data-pptx-role="decoration" data-pptx-bounds="900 40 380 380">
+    <circle cx="1120" cy="200" r="170" fill="none" stroke="#22D3EE" stroke-width="1" stroke-opacity="0.14" />
+    <circle cx="1120" cy="200" r="110" fill="none" stroke="#F0B90B" stroke-width="1" stroke-opacity="0.3" />
+    <circle cx="1120" cy="200" r="8" fill="#F0B90B" filter="url(#glow)" />
+  </g>
+  <g id="closing" data-pptx-bounds="72 176 1136 250">
+  <text id="ekicker" x="72" y="200" font-size="15" letter-spacing="4" fill="#F0B90B">MOST RISK AGENTS ADVISE</text>
+  <text id="eline1" x="72" y="300" font-family="Microsoft YaHei, Arial, sans-serif" font-size="60" font-weight="bold" fill="#EAF0FB">币安给了代理力量。</text>
+  <text id="eline2" x="72" y="380" font-family="Microsoft YaHei, Arial, sans-serif" font-size="60" font-weight="bold" fill="#F0B90B">Aegis 让那份力量先经过你。</text>
+  <rect id="erule" x="72" y="418" width="260" height="5" fill="url(#goldGrad)" />
+  </g>
+  <g id="cta" data-pptx-bounds="72 470 1136 120">
+    <rect x="72" y="470" width="556" height="120" rx="10" fill="#111A2E" stroke="#22304C" stroke-width="1" />
+    <text x="104" y="510" font-size="14" letter-spacing="2" fill="#8A99B8">60 秒验证</text>
+    <text x="104" y="546" font-size="17" fill="#F0B90B">npm install &amp;&amp; npm run demo</text>
+    <text x="104" y="574" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#8A99B8">无需 API Key · 无需网络 · 无资金风险</text>
+
+    <rect x="652" y="470" width="556" height="120" rx="10" fill="#111A2E" stroke="#22304C" stroke-width="1" />
+    <text x="684" y="510" font-size="14" letter-spacing="2" fill="#8A99B8">开源仓库 · MIT</text>
+    <text x="684" y="546" font-size="17" fill="#22D3EE">github.com/blueskylh/Binance_Aegis</text>
+    <text x="684" y="574" font-family="Microsoft YaHei, Arial, sans-serif" font-size="15" fill="#8A99B8">333 测试 · 零运行时依赖 · 四轮审计全部公开</text>
+  </g>
+  <g id="pagefoot" data-pptx-role="footer" data-pptx-bounds="72 650 1136 46">
+  <line id="frule" x1="72" y1="662" x2="1208" y2="662" stroke="#22304C" stroke-width="1" />
+  <text id="fbrand" x="72" y="688" font-size="13" fill="#8A99B8">AEGIS · Binance Agent OS Mini Hackathon · Track A</text>
+  <text id="fnum" data-pptx-role="page-number" x="1208" y="688" text-anchor="end" font-size="13" fill="#F0B90B">10</text>
+  </g>
+</svg>

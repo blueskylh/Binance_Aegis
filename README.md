@@ -422,6 +422,15 @@ aegis demo                        三幕演示
 
 ---
 
+## 🎞️ 演示文稿
+
+面向 Track A 评审的 10 页中文提案 PPT,由 [PPT Master](https://github.com/hugohe3/ppt-master) 生成 ——
+**588 个原生 DrawingML 对象、192 个可编辑文本、0 张位图**,在 PowerPoint 中可继续编辑。
+
+👉 [`deck/Aegis-Pitch-Deck-zh.pptx`](./deck/Aegis-Pitch-Deck-zh.pptx) · [页面结构与重新生成说明](./deck/README.md)
+
+---
+
 ## 📂 文档索引
 
 | 文档 | 内容 |
