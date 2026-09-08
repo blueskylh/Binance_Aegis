@@ -438,6 +438,7 @@ aegis demo                        三幕演示
 | [`docs/SECURITY.md`](./docs/SECURITY.md) | **威胁模型、保证边界、完整审计历史** |
 | [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md) | 为什么引擎是纯函数、哈希链如何工作、不变量的实现 |
 | [`docs/INTEGRATION.md`](./docs/INTEGRATION.md) | 网关 / 建议 / 库三种接入、灰度上线流程、故障模式对照表 |
+| [`docs/WINDOWS-CODEX-SETUP.md`](./docs/WINDOWS-CODEX-SETUP.md) | **Windows + Codex 接入** — PowerShell 命令、MCP 配置、演示脚本 |
 | [`docs/VIDEO-SCRIPT-ZH.md`](./docs/VIDEO-SCRIPT-ZH.md) | **录制稿** — 逐句台词、实测命令、提交清单 |
 | [`docs/DEMO-SCRIPT.md`](./docs/DEMO-SCRIPT.md) | 2 分钟演示视频分镜与逐句台词 |
 | [`docs/SUBMISSION.md`](./docs/SUBMISSION.md) | 黑客松评委速查页 |
